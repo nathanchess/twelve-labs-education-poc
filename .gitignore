@@ -3,4 +3,6 @@
 .env
 
 /venv/
-/pycache/
+/__pycache__/
+/api/__pycache__/
+/api/providers/__pycache__/
