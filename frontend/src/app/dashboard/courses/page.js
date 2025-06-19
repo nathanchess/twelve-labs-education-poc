@@ -2,7 +2,7 @@
 
 import { useUser } from '../../context/UserContext';
 import { useRouter } from 'next/navigation';
-import { useState, useRef } from 'react';
+import { useState, useRef, useEffect } from 'react';
 
 export default function Courses() {
   const { userRole, userName, isLoggedIn } = useUser();
@@ -13,6 +13,12 @@ export default function Courses() {
   const [uploadProgress, setUploadProgress] = useState(0);
   const [isUploading, setIsUploading] = useState(false);
   const fileInputRef = useRef(null);
+
+  useEffect(() => {
+    if (!isLoggedIn) {
+      router.push('/');
+    }
+  }, [isLoggedIn, router]);
    
   const handleUpload = (file) => {
     // Create a blob URL for the file
@@ -27,11 +33,9 @@ export default function Courses() {
       date: new Date(),
       blob: blob,
       blobUrl: blobUrl,
-      originalFile: file // Store the original file for TwelveLabs upload
     };
     
-    console.log('Uploading file:', file);
-    console.log('File blob created:', blob);
+    console.log('File data:', fileData);
     
     // Set the single uploaded video
     setUploadedVideo(fileData);
@@ -72,6 +76,7 @@ export default function Courses() {
   };
 
   const handleUploadVideos = async () => {
+    
     if (!uploadedVideo) return;
     
     setIsButtonAnimating(true);
@@ -81,117 +86,89 @@ export default function Courses() {
     try {
       // Upload to TwelveLabs with progress tracking
       const url = 'https://api.twelvelabs.io/v1.3/tasks';
+
       const form = new FormData();
       form.append('index_id', process.env.NEXT_PUBLIC_TWELVE_LABS_INDEX_ID);
-      form.append('video_file', uploadedVideo.originalFile);
+      form.append('video_file', uploadedVideo.blob);
       form.append('enable_video_stream', '');
+
+      const options = {
+        method: 'POST', 
+        headers: {
+          'x-api-key': process.env.NEXT_PUBLIC_TWELVE_LABS_API_KEY
+        },
+        body: form
+      }
+
+      const response = await fetch(url, options);
+      const data = await response.json();
+
+      console.log('Data:', data);
       
-      // Create a custom upload with progress tracking
-      const xhr = new XMLHttpRequest();
-      
-      xhr.upload.addEventListener('progress', (e) => {
-        if (e.lengthComputable) {
-          const progress = (e.loaded / e.total) * 100;
-          setUploadProgress(progress);
-          console.log(`Upload progress: ${progress.toFixed(2)}%`);
+      const retrieveVideoIndexTaskURL = 'https://api.twelvelabs.io/v1.3/tasks/' + data._id;
+      const retrieveVideoIndexTaskOptions = {
+        method: 'GET',
+        headers: {
+          'x-api-key': process.env.NEXT_PUBLIC_TWELVE_LABS_API_KEY
         }
-      });
-      
-      xhr.addEventListener('load', async () => {
-        if (xhr.status === 200 || xhr.status === 201) {
-          try {
-            const data = JSON.parse(xhr.responseText);
+      }
 
-            const retrieveVideoIndexTaskURL = 'https://api.twelvelabs.io/v1.3/tasks/' + data._id;
-            const retrieveVideoIndexTaskOptions = {
-              method: 'GET',
-              headers: {
-                'x-api-key': process.env.NEXT_PUBLIC_TWELVE_LABS_API_KEY
-              }
-            }
+      while (true) {
+        const retrieveVideoIndexTaskResponse = await fetch(retrieveVideoIndexTaskURL, retrieveVideoIndexTaskOptions);
+        const retrieveVideoIndexTaskData = await retrieveVideoIndexTaskResponse.json();
 
-            try {
+        const status = retrieveVideoIndexTaskData.status;
 
-              const statusList = ['validating', 'pending', 'queued', 'indexing', 'ready', 'failed'];
-
-              while (true) {
-                const retrieveVideoIndexTaskResponse = await fetch(retrieveVideoIndexTaskURL, retrieveVideoIndexTaskOptions);
-                const retrieveVideoIndexTaskData = await retrieveVideoIndexTaskResponse.json();
-
-                const status = retrieveVideoIndexTaskData.status;
-
-                if (status == 'ready') {
-                  break;
-                } else if (status == 'validating') {
-                  setUploadProgress(5);
-                } else if (status == 'pending') {
-                  setUploadProgress(10);
-                } else if (status == 'queued') {
-                  setUploadProgress(20);
-                } else if (status == 'indexing') {
-                  setUploadProgress(70);
-                } else if (status == 'failed') {
-                  setUploadProgress(100);
-                  throw new Error('Video indexing failed');
-                }
-              }
-
-            } catch (error) {
-              console.error('Error retrieving video index task:', error);
-            }
-
-            console.log('Video uploaded successfully:', data);
-            setUploadProgress(100);
-            setIsUploading(false);
-            setIsButtonAnimating(false);
-            
-            // Store the video ID for future reference
-            if (data.video_id) {
-              console.log('Video ID:', data.video_id);
-              
-              // Store video data in localStorage for the slug route
-              const videoDataForStorage = {
-                ...uploadedVideo,
-                twelveLabsVideoId: data.video_id,
-                uploadDate: new Date().toISOString()
-              };
-              localStorage.setItem(`video_${data.video_id}`, JSON.stringify(videoDataForStorage));
-              
-              // Redirect to the video slug route
-              router.push(`/dashboard/courses/${data.video_id}`);
-            }
-          } catch (parseError) {
-            console.error('Error parsing response:', parseError);
-            setUploadProgress(0);
-            setIsUploading(false);
-            setIsButtonAnimating(false);
-          }
-        } else {
-          console.error('Failed to upload video:', xhr.status, xhr.responseText);
-          setUploadProgress(0);
-          setIsUploading(false);
-          setIsButtonAnimating(false);
+        if (status == 'ready') {
+          break;
+        } else if (status == 'validating') {
+          setUploadProgress(5);
+        } else if (status == 'pending') {
+          setUploadProgress(10);
+        } else if (status == 'queued') {
+          setUploadProgress(20);
+        } else if (status == 'indexing') {
+          setUploadProgress(70);
+        } else if (status == 'failed') {
+          setUploadProgress(100);
+          throw new Error('Video indexing failed');
         }
-      });
+
+        await new Promise(resolve => setTimeout(resolve, 2000));
+
+      }
+
+      console.log('Video uploaded successfully:', data);
+      setUploadProgress(100);
+      setIsUploading(false);
+      setIsButtonAnimating(false);
       
-      xhr.addEventListener('error', () => {
-        console.error('Upload failed');
-        setUploadProgress(0);
-        setIsUploading(false);
-        setIsButtonAnimating(false);
-      });
-      
-      xhr.open('POST', url);
-      xhr.setRequestHeader('x-api-key', process.env.NEXT_PUBLIC_TWELVE_LABS_API_KEY);
-      xhr.send(form);
+      // Store the video ID for future reference
+      if (data.video_id) {
+        console.log('Video ID:', data.video_id);
+        
+        // Store video data in localStorage for the slug route
+        const videoDataForStorage = {
+          ...uploadedVideo,
+          twelveLabsVideoId: data.video_id,
+          uploadDate: new Date().toISOString()
+        };
+        localStorage.setItem(`video_${data.video_id}`, JSON.stringify(videoDataForStorage));
+        
+        // Redirect to the video slug route
+        router.push(`/dashboard/courses/${data.video_id}`);
+      }
 
     } catch (error) {
       console.error('Error uploading to TwelveLabs:', error);
       setIsUploading(false);
       setUploadProgress(0);
       setIsButtonAnimating(false);
+    } finally {
+      setIsUploading(false);
+      setIsButtonAnimating(false);
     }
-  };
+  }
 
   if (!isLoggedIn) {
     return null;
