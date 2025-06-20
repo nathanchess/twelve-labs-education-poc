@@ -89,8 +89,8 @@ export default function Courses() {
 
       const form = new FormData();
       form.append('index_id', process.env.NEXT_PUBLIC_TWELVE_LABS_INDEX_ID);
-      form.append('video_file', uploadedVideo.blob);
-      form.append('enable_video_stream', '');
+      form.append('video_file', uploadedVideo.blob, uploadedVideo.name);
+      form.append('enable_video_stream', 'true');
 
       const options = {
         method: 'POST', 
@@ -120,12 +120,44 @@ export default function Courses() {
         const status = retrieveVideoIndexTaskData.status;
 
         if (status == 'ready') {
+          
+          setUploadProgress(95);
+
+          // Upload to DynamoDB
+
+          try {
+            const uploadVideoResponse = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/upload_video`, {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json'
+              },
+              body: JSON.stringify({
+                twelve_labs_video_id: data.video_id
+              })
+            });
+
+            if (!uploadVideoResponse.ok) {
+              const errorData = await uploadVideoResponse.json();
+              console.error('Backend API error:', errorData);
+              throw new Error(`Backend API error: ${errorData.message || uploadVideoResponse.statusText}`);
+            }
+
+            const uploadResult = await uploadVideoResponse.json();
+            console.log('Upload to DynamoDB successful:', uploadResult);
+
+          } catch (error) {
+            console.error('Error uploading to DynamoDB:', error);
+            setUploadProgress(0);
+            throw new Error(`Error uploading to DynamoDB: ${error.message}`);
+          }
+
+          setUploadProgress(95);
           break;
         } else if (status == 'validating') {
           setUploadProgress(5);
-        } else if (status == 'pending') {
-          setUploadProgress(10);
         } else if (status == 'queued') {
+          setUploadProgress(10);
+        } else if (status == 'pending') {
           setUploadProgress(20);
         } else if (status == 'indexing') {
           setUploadProgress(70);

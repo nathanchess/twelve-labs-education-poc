@@ -33,9 +33,6 @@ class TwelveLabsHandler:
         self.hashtags = None
         self.topics = None
 
-        # Set up functions to add metadata to the video when uploaded to S3. 
-        self.generate_gist()
-
         print("Initialized TwelveLabsHandler for video: ", self.twelve_labs_video_id)
 
     def _list_indexes(self):
@@ -65,8 +62,6 @@ class TwelveLabsHandler:
             summaryStream = self.twelve_labs_client.analyze_stream(video_id=self.twelve_labs_video_id, prompt=self.summary_prompt)
             chapterStream = self.twelve_labs_client.analyze_stream(video_id=self.twelve_labs_video_id, prompt=self.chapter_prompt)
 
-            
-
             return summaryStream, chapterStream
 
         except Exception as e:
@@ -87,9 +82,11 @@ class TwelveLabsHandler:
 
             title, hashtags, topics = gist.title, gist.hashtags.root, gist.topics.root
 
-            self.title = title
-            self.hashtags = hashtags
-            self.topics = topics
+            return {
+                'title': title,
+                'hashtags': hashtags,
+                'topics': topics
+            }
 
         except Exception as e:
 
