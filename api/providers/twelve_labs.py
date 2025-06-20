@@ -19,7 +19,8 @@ class TwelveLabsHandler:
         self.indexes = dict()
 
         # Prompts for the video deconstruction focused on student learning.
-        self.summary_prompt = "Summarize the video in less than 5 sentences for a student."
+        self.summary_prompt = "Summarize the video in less than 5 sentences. Listen to the audio and summarize the video in a way that is helpful for a student to understand the topic being discussed."
+        self.key_takeaways_prompt = "Generate key takeaways from the video. Listen to the audio and generate key takeaways that are helpful for a student to understand the topic being discussed."
         self.chapter_prompt = """
         Generate chapters that covers the detailed subtopics of the video that the instructor is teaching. 
         Make the chapter title and summary be helpful for a student to understand the topic being discussed.
@@ -64,7 +65,6 @@ class TwelveLabsHandler:
 
             coroutine = self.twelve_labs_client.analyze_stream(video_id=self.twelve_labs_video_id, prompt=prompt)
 
-            # Use regular for loop since it's a regular generator, not async
             for chunk in coroutine:
 
                 print(chunk)
@@ -106,6 +106,7 @@ class TwelveLabsHandler:
             output_queue = asyncio.Queue()
 
             summary_coroutine = self._process_coroutine(stream_type='summary', prompt=self.summary_prompt, output_queue=output_queue)
+            
             #chapter_coroutine = self._process_coroutine(stream_type='chapter', prompt=self.chapter_prompt, output_queue=output_queue)
 
             summary_task = asyncio.create_task(summary_coroutine)
@@ -117,6 +118,7 @@ class TwelveLabsHandler:
 
             stream_status = {
                 'summary': False,
+                'key_takeaways': False,
             }
 
             while completed_stream_count < total_streams:

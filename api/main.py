@@ -133,7 +133,7 @@ def cached_analysis():
             'message': str(e)
         }), 500
 
-@app.route('/run_analysis', methods=['POST'])
+@app.route('/run_analysis', methods=['GET', 'POST'])
 @cross_origin()
 def run_analysis():
 
@@ -150,14 +150,17 @@ def run_analysis():
     """
 
     try:
-
-        data = request.json
-        twelve_labs_video_id = data.get('twelve_labs_video_id')
+        # Handle both GET and POST requests
+        if request.method == 'GET':
+            twelve_labs_video_id = request.args.get('video_id')
+        else:  # POST
+            data = request.json
+            twelve_labs_video_id = data.get('twelve_labs_video_id')
 
         if not twelve_labs_video_id:
             return jsonify({
                 'status': 'error',
-                'message': 'twelve_labs_video_id is required'
+                'message': 'video_id/twelve_labs_video_id is required'
             }), 400
 
         twelvelabs_provider = TwelveLabsHandler(twelve_labs_video_id=twelve_labs_video_id)

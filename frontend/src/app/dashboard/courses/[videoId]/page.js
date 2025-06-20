@@ -63,7 +63,6 @@ const VideoPlayer = React.memo(({ videoData }) => {
       hls.attachMedia(videoElement);
       
       hls.on(Hls.Events.MANIFEST_PARSED, () => {
-        console.log('HLS manifest loaded successfully');
         videoElement.play().catch(e => console.log('Auto-play prevented:', e));
       });
       
@@ -91,20 +90,9 @@ const VideoPlayer = React.memo(({ videoData }) => {
         }
       });
       
-      hls.on(Hls.Events.MEDIA_ATTACHED, () => {
-        console.log('HLS media attached successfully');
-      });
-      
-      hls.on(Hls.Events.MANIFEST_LOADING, () => {
-        console.log('HLS manifest loading...');
-      });
-      
       return hls;
     } else if (videoElement.canPlayType('application/vnd.apple.mpegurl')) {
-      console.log('Using native HLS support');
-      videoElement.src = hlsUrl;
       videoElement.addEventListener('loadedmetadata', () => {
-        console.log('Native HLS loaded successfully');
         videoElement.play().catch(e => console.log('Auto-play prevented:', e));
       });
       videoElement.addEventListener('error', (e) => {
@@ -120,7 +108,6 @@ const VideoPlayer = React.memo(({ videoData }) => {
   // Load HLS video when videoData changes
   useEffect(() => {
     if (videoData && videoData.hlsUrl && videoRef.current && !videoData.blobUrl) {
-      console.log('Loading HLS video:', videoData.hlsUrl);
       const hlsInstance = loadHlsVideo(videoRef.current, videoData.hlsUrl);
       
       return () => {
@@ -385,12 +372,12 @@ export default function VideoPage({ params }) {
   const { videoId } = use(params);
   
   try {
-    console.log('VideoPage component starting...');
-    console.log('Params:', params);
-    console.log('VideoId extracted:', videoId);
+    //console.log('VideoPage component starting...');
+    //console.log('Params:', params);
+    //console.log('VideoId extracted:', videoId);
     
     const { userRole, userName, isLoggedIn } = useUser();
-    console.log('User context loaded:', { userRole, userName, isLoggedIn });
+    //console.log('User context loaded:', { userRole, userName, isLoggedIn });
     
     const router = useRouter();
     const [videoData, setVideoData] = useState(null);
@@ -412,6 +399,9 @@ export default function VideoPage({ params }) {
     const [generatedTitle, setGeneratedTitle] = useState(null);
     const [generatedHashtags, setGeneratedHashtags] = useState(null);
     const [generatedTopics, setGeneratedTopics] = useState(null);
+    const [titleCompleted, setTitleCompleted] = useState(false);
+    const [hashtagsCompleted, setHashtagsCompleted] = useState(false);
+    const [topicsCompleted, setTopicsCompleted] = useState(false);
 
     useEffect(() => {
       // For now, we'll get video data from localStorage
@@ -451,18 +441,18 @@ export default function VideoPage({ params }) {
       }
 
       const fetchVideo = async () => {
-        console.log('Fetching video data from TwelveLabs...');
+        //console.log('Fetching video data from TwelveLabs...');
         const retrievalURL = `https://api.twelvelabs.io/v1.3/indexes/${process.env.NEXT_PUBLIC_TWELVE_LABS_INDEX_ID}/videos/${videoId}?transcription=true`
         try {
           const retrieveVideoResponse = await fetch(retrievalURL, options);
-          console.log('Response status:', retrieveVideoResponse.status);
+          //console.log('Response status:', retrieveVideoResponse.status);
           
           if (!retrieveVideoResponse.ok) {
             throw new Error(`HTTP ${retrieveVideoResponse.status}: ${retrieveVideoResponse.statusText}`);
           }
           
           const result = await retrieveVideoResponse.json();
-          console.log('Retrieved video data:', result);
+          //console.log('Retrieved video data:', result);
 
           // Create a fallback video data structure
           const videoData = {
@@ -572,63 +562,43 @@ export default function VideoPage({ params }) {
       });
       
       try {
-        const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/run_analysis`, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({
-            twelve_labs_video_id: videoId
-          }),
-        });
+        console.log('Running analysis...');
+        
+        const eventSource = new EventSource(`${process.env.NEXT_PUBLIC_API_URL}/run_analysis?video_id=${videoId}`);
 
-        if (!response.ok) {
-          throw new Error(`HTTP error! status: ${response.status}`);
+        eventSource.onopen = () => {
+            console.log('Event source opened');
         }
 
-        const reader = response.body.getReader();
-        const decoder = new TextDecoder();
-        let buffer = '';
-
-        while (true) {
-          const { done, value } = await reader.read();
-          if (done) break;
-          
-          buffer += decoder.decode(value, { stream: true });
-          
-          // Process complete lines
-          const lines = buffer.split('\n');
-          buffer = lines.pop() || ''; // Keep incomplete line in buffer
-          
-          for (const line of lines) {
-            if (line.startsWith('data: ')) {
-              try {
-                const jsonStr = line.slice(6); // Remove 'data: ' prefix
-                const data = JSON.parse(jsonStr);
-                console.log("Streamed data:", data);
-                
-                if (data.type === 'summary' && data.status === 'in_progress') {
-                  setGeneratedContent(prev => ({
-                    ...prev,
-                    summary: prev.summary + data.content,
-                  }));
-                } else if (data.status === 'complete') {
-                  console.log(`${data.type} analysis complete`);
-                  if (data.type === 'summary' || data.type === 'chapter') {
-                    setAnalysisComplete(true);
-                    setIsAnalyzing(false);
-                  }
-                }
-              } catch (error) {
-                console.error('Error parsing SSE data:', error, 'Line:', line);
+        eventSource.onmessage = (event) => {
+          try {
+            const data = JSON.parse(event.data);
+            console.log('Message received:', data);
+            
+            if (data.type === 'summary' && data.status === 'in_progress') {
+              setGeneratedContent(prev => ({
+                ...prev,
+                summary: prev.summary + data.content,
+              }));
+              console.log('Summary:', generatedContent.summary);
+            } else if (data.status === 'complete') {
+              console.log(`${data.type} analysis complete`);
+              if (data.type === 'summary' || data.type === 'chapter') {
+                setAnalysisComplete(true);
+                setIsAnalyzing(false);
+                eventSource.close();
               }
             }
+          } catch (error) {
+            console.error('Error parsing SSE data:', error);
           }
-        }
-        
-        // Mark as complete
-        setAnalysisComplete(true);
-        setIsAnalyzing(false);
+        };
+
+        eventSource.onerror = (error) => {
+          console.error('EventSource error:', error);
+          setIsAnalyzing(false);
+          eventSource.close();
+        };
 
       } catch (error) {
         console.error('Error analyzing lecture:', error);
@@ -733,19 +703,61 @@ export default function VideoPage({ params }) {
         return null;
       }
 
-      const [showTitle, setShowTitle] = useState(false);
-      const [showHashtags, setShowHashtags] = useState(false);
-      const [showTopics, setShowTopics] = useState(false);
+      const [showTitle, setShowTitle] = useState(titleCompleted);
+      const [showHashtags, setShowHashtags] = useState(hashtagsCompleted);
+      const [showTopics, setShowTopics] = useState(topicsCompleted);
       const [hasInitialized, setHasInitialized] = useState(false);
 
       useEffect(() => {
         if (!hasInitialized && (hasValidTitle || hasValidHashtags || hasValidTopics)) {
           setHasInitialized(true);
-          if (hasValidTitle) setTimeout(() => setShowTitle(true), 500);
-          if (hasValidHashtags) setTimeout(() => setShowHashtags(true), 1200);
-          if (hasValidTopics) setTimeout(() => setShowTopics(true), 1800);
+          if (hasValidTitle && !titleCompleted) {
+            setTimeout(() => {
+              setShowTitle(true);
+              setTitleCompleted(true);
+            }, 500);
+          }
+          if (hasValidHashtags && !hashtagsCompleted) {
+            setTimeout(() => {
+              setShowHashtags(true);
+              setHashtagsCompleted(true);
+            }, 1200);
+          }
+          if (hasValidTopics && !topicsCompleted) {
+            setTimeout(() => {
+              setShowTopics(true);
+              setTopicsCompleted(true);
+            }, 1800);
+          }
         }
-      }, [hasValidTitle, hasValidHashtags, hasValidTopics, hasInitialized]);
+      }, [hasValidTitle, hasValidHashtags, hasValidTopics, hasInitialized, titleCompleted, hashtagsCompleted, topicsCompleted]);
+
+      // Show everything immediately if already completed
+      if (titleCompleted && hashtagsCompleted && topicsCompleted) {
+        return (
+          <div className="mb-8">
+            {hasValidTitle && (
+              <h2 className="text-2xl font-bold text-gray-900 mb-2">
+                {title}
+              </h2>
+            )}
+            {hasValidHashtags && (
+              <div className="flex flex-wrap gap-2 mb-2">
+                {hashtags.map((hashtag, idx) => (
+                  <span key={idx} className="text-blue-700 bg-blue-100 px-3 py-1 rounded-full text-sm font-medium">#{hashtag}</span>
+                ))}
+              </div>
+            )}
+            {hasValidTopics && (
+              <div className="flex flex-wrap gap-2">
+                {topics.map((topic, idx) => (
+                  <span key={idx} className="bg-gray-200 text-gray-800 px-3 py-1 rounded-full text-sm font-medium">{topic}</span>
+                ))}
+              </div>
+            )}
+          </div>
+        );
+      }
 
       // Show everything immediately if not animating
       if (!hasInitialized && (hasValidTitle || hasValidHashtags || hasValidTopics)) {
@@ -799,8 +811,8 @@ export default function VideoPage({ params }) {
       );
     };
 
-    console.log('Component rendering - loading:', loading, 'videoData:', videoData);
-    console.log('Authentication state - isLoggedIn:', isLoggedIn, 'userRole:', userRole, 'userName:', userName);
+    //console.log('Component rendering - loading:', loading, 'videoData:', videoData);
+    //console.log('Authentication state - isLoggedIn:', isLoggedIn, 'userRole:', userRole, 'userName:', userName);
 
     if (loading) {
       return (
@@ -883,9 +895,9 @@ export default function VideoPage({ params }) {
     }
 
     return (
-      <div className="min-h-screen bg-gradient-to-br from-white to-gray-50">
+      <div className="h-screen bg-gradient-to-br from-white to-gray-50 flex flex-col">
         {/* Header */}
-        <div className="bg-white shadow-sm border-b">
+        <div className="bg-white shadow-sm border-b flex-shrink-0">
           <div className="max-w-7xl mx-auto px-6 py-4">
             <div className="flex justify-between items-center">
               <div>
@@ -905,18 +917,18 @@ export default function VideoPage({ params }) {
           </div>
         </div>
 
-        <div className="flex h-screen">
-          {/* Left Side - Main Content Area */}
-          <div className="flex-1 flex flex-col">
-            {/* Top Section - Video Player */}
-            <div className="flex-1 bg-black flex items-center justify-center p-6">
+        <div className="flex flex-1 overflow-y-hidden">
+          {/* Main Content Area */}
+          <main className="flex-1 flex flex-col overflow-y-auto">
+            {/* Video Player */}
+            <div className="bg-black flex items-center justify-center p-6">
               <div className="w-full max-w-4xl">
                 <VideoPlayer videoData={videoData} />
               </div>
             </div>
 
-            {/* Bottom Section - Content Area */}
-            <div className="bg-white border-t border-gray-200 p-6">
+            {/* Content Area Below Player */}
+            <div className="p-6">
               <div className="max-w-6xl mx-auto">
                 {/* Cached Analysis Results */}
                 {(generatedTitle || (generatedHashtags && Array.isArray(generatedHashtags) && generatedHashtags.length > 0) || (generatedTopics && Array.isArray(generatedTopics) && generatedTopics.length > 0)) && (
@@ -1091,10 +1103,12 @@ export default function VideoPage({ params }) {
                 </div>
               </div>
             </div>
+          </main>
 
-            {/* Right Sidebar - Chapters and Info */}
-              <div className="w-80 bg-white border-l border-gray-200 p-6 overflow-y-auto">
-                {/* Video Info */}
+          {/* Right Sidebar - Chapters and Info */}
+          <aside className="w-80 bg-white border-l border-gray-200 flex-shrink-0 overflow-y-auto">
+            <div className="p-6">
+              {/* Video Info */}
               <div className="bg-gray-50 rounded-xl p-4 mb-6">
                 <h3 className="text-lg font-semibold text-gray-800 mb-3">Video Information</h3>
                 <div className="space-y-2 text-sm">
@@ -1125,7 +1139,7 @@ export default function VideoPage({ params }) {
                 </div>
               )}
             </div>
-          </div>
+          </aside>
         </div>
       </div>
     );
