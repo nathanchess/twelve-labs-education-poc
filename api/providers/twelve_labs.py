@@ -1,6 +1,8 @@
 from twelvelabs import TwelveLabs
 
 import os
+import json
+import asyncio
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -49,20 +51,107 @@ class TwelveLabsHandler:
 
         return self.indexes
     
-    def stream_student_lecture_analysis(self):
+ 
+    async def _process_coroutine(self, stream_type: str, prompt: str, output_queue: asyncio.Queue):
+        
+        """
+        
+        Processes a coroutine and streams the results to the output queue.
+        
+        """
+        
+        try:
+
+            coroutine = self.twelve_labs_client.analyze_stream(video_id=self.twelve_labs_video_id, prompt=prompt)
+
+            # Use regular for loop since it's a regular generator, not async
+            for chunk in coroutine:
+
+                print(chunk)
+
+                await output_queue.put(json.dumps({
+                    "type": stream_type,
+                    "content": chunk,
+                    'status': 'in_progress'
+                }))
+
+            await output_queue.put(json.dumps({
+                'type': stream_type,
+                'chunk': None,
+                'status': 'complete'
+            }))
+
+        except Exception as e:
+            
+            await output_queue.put(json.dumps({
+                'type': stream_type,
+                'chunk': None,
+                'status': 'error',
+                'error': str(e)
+            }))
+        
+
+    async def stream_student_lecture_analysis(self):
 
         """
         
-        Deconstructs the video into a list of frames.
+        Deconstructs the video into a list of frames and streams the results.
+
+        Runs them concurrently using asyncio coroutines and returns the coroutines to be iterated over.
         
         """
 
         try:
 
-            summaryStream = self.twelve_labs_client.analyze_stream(video_id=self.twelve_labs_video_id, prompt=self.summary_prompt)
-            chapterStream = self.twelve_labs_client.analyze_stream(video_id=self.twelve_labs_video_id, prompt=self.chapter_prompt)
+            output_queue = asyncio.Queue()
 
-            return summaryStream, chapterStream
+            summary_coroutine = self._process_coroutine(stream_type='summary', prompt=self.summary_prompt, output_queue=output_queue)
+            chapter_coroutine = self._process_coroutine(stream_type='chapter', prompt=self.chapter_prompt, output_queue=output_queue)
+
+            summary_task = asyncio.create_task(summary_coroutine)
+            chapter_task = asyncio.create_task(chapter_coroutine)
+
+            tasks_to_complete = [summary_task, chapter_task]
+            completed_stream_count = 0
+            total_streams = len(tasks_to_complete)
+
+            stream_status = {
+                'summary': False,
+                'chapter': False
+            }
+
+            while completed_stream_count < total_streams:
+
+                while not output_queue.empty():
+
+                    item = await output_queue.get()
+                    data = json.loads(item)
+
+                    if data['status'] == 'complete':
+
+                        stream_status[data['type']] = True
+                        completed_stream_count += 1
+
+                    yield data
+
+                await asyncio.sleep(0.1)
+
+                done_tasks = []
+                for task in tasks_to_complete:
+
+                    if task.done():
+                        try:
+                            task.result()
+                        except Exception as e:
+                            if 'summary' in task.get_name():
+                                print(f"Error processing summary task: {str(e)}")
+                            elif 'chapter' in task.get_name():
+                                print(f"Error processing chapter task: {str(e)}")
+                        tasks_to_complete.remove(task)
+                        done_tasks.append(task)
+
+                if all(stream_status.values()):
+                    break
 
         except Exception as e:
 

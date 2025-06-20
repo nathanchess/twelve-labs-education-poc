@@ -149,16 +149,14 @@ async def run_analysis():
     
     """
 
-    result_queue = asyncio.Queue()
-
-    twelve_labs_handler = TwelveLabsHandler(twelve_labs_video_id="685445bbd1abad44eba827ca")
-
-    tasks = [
-        asyncio.create_task(twelve_labs_handler.generate_gist())
-    ]
-
-    completed_tasks, total_tasks = 0, len(tasks) 
+    
 
 if __name__ == "__main__":
 
-    app.run(debug=True)
+    response = TwelveLabsHandler(twelve_labs_video_id="6854a7e34bd7616727c40368").stream_student_lecture_analysis()
+    async def main():
+        async for chunk in response:
+            print(chunk)
+    asyncio.run(main())
+
+    #app.run(debug=True)
