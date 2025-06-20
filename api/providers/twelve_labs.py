@@ -106,18 +106,17 @@ class TwelveLabsHandler:
             output_queue = asyncio.Queue()
 
             summary_coroutine = self._process_coroutine(stream_type='summary', prompt=self.summary_prompt, output_queue=output_queue)
-            chapter_coroutine = self._process_coroutine(stream_type='chapter', prompt=self.chapter_prompt, output_queue=output_queue)
+            #chapter_coroutine = self._process_coroutine(stream_type='chapter', prompt=self.chapter_prompt, output_queue=output_queue)
 
             summary_task = asyncio.create_task(summary_coroutine)
-            chapter_task = asyncio.create_task(chapter_coroutine)
+            #chapter_task = asyncio.create_task(chapter_coroutine)
 
-            tasks_to_complete = [summary_task, chapter_task]
+            tasks_to_complete = [summary_task]
             completed_stream_count = 0
             total_streams = len(tasks_to_complete)
 
             stream_status = {
                 'summary': False,
-                'chapter': False
             }
 
             while completed_stream_count < total_streams:

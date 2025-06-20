@@ -546,6 +546,7 @@ export default function VideoPage({ params }) {
       // Start both fetches
       fetchVideo();
       fetchCachedAnalysis();
+      analyzeLectureWithAI();
 
       // Cleanup timeout on unmount
       return () => clearTimeout(loadingTimeout);
@@ -561,7 +562,7 @@ export default function VideoPage({ params }) {
       setAnalysisComplete(false);
       setGeneratedContent({
         chapters: false,
-        summary: false,
+        summary: '',
         keyTakeaways: false,
         pacingRecommendations: false,
         quizzes: false,
@@ -571,67 +572,64 @@ export default function VideoPage({ params }) {
       });
       
       try {
-        // Simulate progressive content generation
-        const generateContent = async () => {
-          // Start with chapters (fastest)
-          await new Promise(resolve => setTimeout(resolve, 800));
-          setGeneratedContent(prev => ({ ...prev, chapters: true }));
-          
-          // Summary next
-          await new Promise(resolve => setTimeout(resolve, 1200));
-          setGeneratedContent(prev => ({ ...prev, summary: true }));
-          
-          // Key takeaways
-          await new Promise(resolve => setTimeout(resolve, 1000));
-          setGeneratedContent(prev => ({ ...prev, keyTakeaways: true }));
-          
-          // Pacing recommendations
-          await new Promise(resolve => setTimeout(resolve, 1500));
-          setGeneratedContent(prev => ({ ...prev, pacingRecommendations: true }));
-          
-          // Notes and concepts
-          await new Promise(resolve => setTimeout(resolve, 1100));
-          setGeneratedContent(prev => ({ ...prev, notes: true }));
-          
-          // Quizzes (takes longer)
-          await new Promise(resolve => setTimeout(resolve, 2000));
-          setGeneratedContent(prev => ({ ...prev, quizzes: true }));
-          
-          // Study materials
-          await new Promise(resolve => setTimeout(resolve, 1800));
-          setGeneratedContent(prev => ({ ...prev, studyMaterials: true }));
-          
-          // External resources (last)
-          await new Promise(resolve => setTimeout(resolve, 1400));
-          setGeneratedContent(prev => ({ ...prev, externalResources: true }));
-          
-          // Mark as complete
-          setAnalysisComplete(true);
-          setIsAnalyzing(false);
-        };
-
-        // Call placeholder API endpoint
-        const response = await fetch('/api/analyze-lecture', {
+        const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/run_analysis`, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
           },
           body: JSON.stringify({
-            videoId: videoId,
-            videoData: videoData
+            twelve_labs_video_id: videoId
           }),
         });
 
-        const result = await response.json();
-        
-        if (result.success) {
-          console.log('Lecture analysis completed:', result);
-          // Start progressive content generation
-          generateContent();
-        } else {
-          console.error('Analysis failed:', result.message);
-          setIsAnalyzing(false);
+        if (!response.ok) {
+          throw new Error(`HTTP error! status: ${response.status}`);
         }
+
+        const reader = response.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = '';
+
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          
+          buffer += decoder.decode(value, { stream: true });
+          
+          // Process complete lines
+          const lines = buffer.split('\n');
+          buffer = lines.pop() || ''; // Keep incomplete line in buffer
+          
+          for (const line of lines) {
+            if (line.startsWith('data: ')) {
+              try {
+                const jsonStr = line.slice(6); // Remove 'data: ' prefix
+                const data = JSON.parse(jsonStr);
+                console.log("Streamed data:", data);
+                
+                if (data.type === 'summary' && data.status === 'in_progress') {
+                  setGeneratedContent(prev => ({
+                    ...prev,
+                    summary: prev.summary + data.content,
+                  }));
+                } else if (data.status === 'complete') {
+                  console.log(`${data.type} analysis complete`);
+                  if (data.type === 'summary' || data.type === 'chapter') {
+                    setAnalysisComplete(true);
+                    setIsAnalyzing(false);
+                  }
+                }
+              } catch (error) {
+                console.error('Error parsing SSE data:', error, 'Line:', line);
+              }
+            }
+          }
+        }
+        
+        // Mark as complete
+        setAnalysisComplete(true);
+        setIsAnalyzing(false);
+
       } catch (error) {
         console.error('Error analyzing lecture:', error);
         setIsAnalyzing(false);
@@ -973,8 +971,7 @@ export default function VideoPage({ params }) {
                       </h3>
                       <p className="text-sm text-gray-500 mb-4">Comprehensive overview of the lecture content and key points covered</p>
                       <div className="space-y-3">
-                        <p className="text-gray-700">This lecture provides a comprehensive introduction to modern web development practices, covering essential concepts from frontend frameworks to backend architecture. The instructor demonstrates practical examples and best practices for building scalable applications.</p>
-                        <p className="text-gray-700">Key topics include responsive design principles, state management patterns, and performance optimization techniques that are crucial for today's web applications.</p>
+                        <p className="text-gray-700">{generatedContent.summary}</p>
                       </div>
                     </div>
                   ) : (

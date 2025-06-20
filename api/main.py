@@ -4,7 +4,7 @@ from helpers import DBHandler
 import json
 import asyncio
 import logging
-from flask import Flask, request, jsonify
+from flask import Flask, request, jsonify, Response
 from flask_cors import CORS, cross_origin
 
 # Configure logging
@@ -135,7 +135,7 @@ def cached_analysis():
 
 @app.route('/run_analysis', methods=['POST'])
 @cross_origin()
-async def run_analysis():
+def run_analysis():
 
     """
     
@@ -149,14 +149,68 @@ async def run_analysis():
     
     """
 
-    
+    try:
+
+        data = request.json
+        twelve_labs_video_id = data.get('twelve_labs_video_id')
+
+        if not twelve_labs_video_id:
+            return jsonify({
+                'status': 'error',
+                'message': 'twelve_labs_video_id is required'
+            }), 400
+
+        twelvelabs_provider = TwelveLabsHandler(twelve_labs_video_id=twelve_labs_video_id)
+
+        logger.info("Running analysis...")
+        
+        def generate():
+            try:
+                async def async_generate():
+                    response = twelvelabs_provider.stream_student_lecture_analysis()
+                    async for chunk in response:
+                        # Format as Server-Sent Event
+                        yield f"data: {json.dumps(chunk)}\n\n"
+                
+                # Run the async generator in the sync context
+                loop = asyncio.new_event_loop()
+                asyncio.set_event_loop(loop)
+                try:
+                    async_gen = async_generate()
+                    while True:
+                        try:
+                            chunk = loop.run_until_complete(async_gen.__anext__())
+                            yield chunk
+                        except StopAsyncIteration:
+                            break
+                finally:
+                    loop.close()
+                    
+            except Exception as e:
+                error_data = {
+                    'type': 'error',
+                    'chunk': None,
+                    'status': 'error',
+                    'error': str(e)
+                }
+                yield f"data: {json.dumps(error_data)}\n\n"
+
+        return Response(
+            generate(),
+            mimetype='text/event-stream',
+            headers={
+                'Cache-Control': 'no-cache',
+                'Connection': 'keep-alive'
+            }
+        )
+
+    except Exception as e:
+        logger.error(f"=== Error in run_analysis endpoint: {str(e)} ===")
+        return jsonify({
+            'status': 'error',
+            'message': str(e)
+        }), 500
 
 if __name__ == "__main__":
 
-    response = TwelveLabsHandler(twelve_labs_video_id="6854a7e34bd7616727c40368").stream_student_lecture_analysis()
-    async def main():
-        async for chunk in response:
-            print(chunk)
-    asyncio.run(main())
-
-    #app.run(debug=True)
+    app.run(debug=True)
