@@ -2,12 +2,12 @@
 
 import { useUser } from '../../../context/UserContext';
 import { useRouter } from 'next/navigation';
-import { useState, useEffect, use, useRef } from 'react';
+import { useState, useEffect, use, useRef, useCallback } from 'react';
 import Hls from 'hls.js';
 import React from 'react';
 
 // Separate Video Player Component - completely isolated
-const VideoPlayer = React.memo(({ videoData }) => {
+const VideoPlayer = React.memo(({ videoData, onSeekTo, onTimeUpdate }) => {
   const [currentTime, setCurrentTime] = useState(0);
   const [duration, setDuration] = useState(0);
   const [isPlaying, setIsPlaying] = useState(false);
@@ -15,13 +15,23 @@ const VideoPlayer = React.memo(({ videoData }) => {
 
   const handleTimeUpdate = () => {
     if (videoRef.current) {
-      setCurrentTime(videoRef.current.currentTime);
+      const newTime = videoRef.current.currentTime;
+      setCurrentTime(newTime);
+      // Notify parent of time update
+      if (onTimeUpdate) {
+        onTimeUpdate(newTime, duration);
+      }
     }
   };
 
   const handleLoadedMetadata = () => {
     if (videoRef.current) {
-      setDuration(videoRef.current.duration);
+      const newDuration = videoRef.current.duration;
+      setDuration(newDuration);
+      // Notify parent of duration update
+      if (onTimeUpdate) {
+        onTimeUpdate(currentTime, newDuration);
+      }
     }
   };
 
@@ -42,6 +52,13 @@ const VideoPlayer = React.memo(({ videoData }) => {
       setCurrentTime(time);
     }
   };
+
+  // Expose seekTo function to parent component (only once)
+  useEffect(() => {
+    if (onSeekTo) {
+      onSeekTo(seekTo);
+    }
+  }, [onSeekTo]);
 
   const formatTime = (time) => {
     const minutes = Math.floor(time / 60);
@@ -232,69 +249,67 @@ const VideoPlayer = React.memo(({ videoData }) => {
 });
 
 // Separate Chapters Component - also isolated
-const ChaptersSection = React.memo(({ videoData }) => {
-  const [currentTime, setCurrentTime] = useState(0);
-  const [duration, setDuration] = useState(0);
-  const videoRef = useRef(null);
-
-  const handleTimeUpdate = () => {
-    if (videoRef.current) {
-      setCurrentTime(videoRef.current.currentTime);
-    }
-  };
-
-  const handleLoadedMetadata = () => {
-    if (videoRef.current) {
-      setDuration(videoRef.current.duration);
-    }
-  };
-
-  const seekTo = (time) => {
-    if (videoRef.current) {
-      videoRef.current.currentTime = time;
-      setCurrentTime(time);
-    }
-  };
-
+const ChaptersSection = React.memo(({ videoData, chapters, loading, seekTo, currentTime, duration }) => {
   const formatTime = (time) => {
     const minutes = Math.floor(time / 60);
     const seconds = Math.floor(time % 60);
     return `${minutes}:${seconds.toString().padStart(2, '0')}`;
   };
 
-  const generateChapters = (videoDuration) => {
-    if (!videoDuration || videoDuration <= 0) return [];
+  // Use API chapters if available, otherwise fall back to generated chapters
+  const getChapters = () => {
+    if (chapters && chapters.length > 0) {
+      // Transform API chapters to match the expected format
+      return chapters.map(chapter => ({
+        id: chapter.chapter_id,
+        title: chapter.title,
+        summary: chapter.summary,
+        startTime: chapter.start_time,
+        endTime: chapter.end_time,
+        duration: chapter.end_time - chapter.start_time
+      }));
+    }
     
-    const chapters = [];
-    const chapterCount = Math.max(3, Math.floor(videoDuration / 300)); // 1 chapter per 5 minutes, minimum 3
+    // Fallback to generated chapters if no API chapters
+    if (!duration || duration <= 0) return [];
+    
+    const generatedChapters = [];
+    const chapterCount = Math.max(3, Math.floor(duration / 300)); // 1 chapter per 5 minutes, minimum 3
     
     for (let i = 0; i < chapterCount; i++) {
-      const startTime = (videoDuration / chapterCount) * i;
-      const endTime = (videoDuration / chapterCount) * (i + 1);
-      chapters.push({
+      const startTime = (duration / chapterCount) * i;
+      const endTime = (duration / chapterCount) * (i + 1);
+      generatedChapters.push({
         id: i + 1,
         title: `Chapter ${i + 1}`,
+        summary: '',
         startTime,
         endTime,
         duration: endTime - startTime
       });
     }
     
-    return chapters;
+    return generatedChapters;
   };
 
   const getCurrentChapter = () => {
-    const chapters = generateChapters(duration);
-    if (!chapters || chapters.length === 0) {
-      return { title: 'Loading...', startTime: 0, endTime: 0, duration: 0 };
+    const allChapters = getChapters();
+    if (!allChapters || allChapters.length === 0) {
+      return { title: 'Loading...', startTime: 0, endTime: 0, duration: 0, summary: '' };
     }
-    return chapters.find(chapter => 
+    return allChapters.find(chapter => 
       currentTime >= chapter.startTime && currentTime < chapter.endTime
-    ) || chapters[0];
+    ) || allChapters[0];
   };
 
-  const chapters = generateChapters(duration);
+  const allChapters = getChapters();
   const currentChapter = getCurrentChapter();
+
+  const handleChapterClick = (startTime) => {
+    if (seekTo) {
+      seekTo(startTime);
+    }
+  };
 
   return (
     <div className="bg-white rounded-xl p-6 border border-gray-200">
@@ -315,14 +330,28 @@ const ChaptersSection = React.memo(({ videoData }) => {
             <p className="text-sm text-blue-600 mt-1">
               {formatTime(currentTime)} / {formatTime(duration)}
             </p>
+            {currentChapter?.summary && (
+              <p className="text-xs text-blue-600 mt-2 italic">
+                {currentChapter.summary}
+              </p>
+            )}
           </div>
         </div>
       </div>
 
       {/* Chapter List */}
       <div className="space-y-2">
-        {chapters && chapters.length > 0 ? (
-          chapters.map((chapter) => (
+        {loading ? (
+          <div className="space-y-3">
+            {[1, 2, 3].map((i) => (
+              <div key={i} className="p-3 rounded-lg bg-gray-50 animate-pulse">
+                <div className="h-4 bg-gray-200 rounded mb-2"></div>
+                <div className="h-3 bg-gray-200 rounded w-2/3"></div>
+              </div>
+            ))}
+          </div>
+        ) : allChapters && allChapters.length > 0 ? (
+          allChapters.map((chapter) => (
             <div
               key={chapter.id}
               className={`p-3 rounded-lg cursor-pointer transition-all duration-200 ${
@@ -330,16 +359,21 @@ const ChaptersSection = React.memo(({ videoData }) => {
                   ? 'bg-blue-100 border border-blue-300'
                   : 'bg-gray-50 hover:bg-gray-100 border border-transparent'
               }`}
-              onClick={() => seekTo(chapter.startTime)}
+              onClick={() => handleChapterClick(chapter.startTime)}
             >
-              <div className="flex items-center justify-between">
-                <div>
+              <div className="flex items-start justify-between">
+                <div className="flex-1">
                   <h4 className="font-medium text-gray-800">{chapter.title}</h4>
                   <p className="text-sm text-gray-600">
                     {formatTime(chapter.startTime)} - {formatTime(chapter.endTime)}
                   </p>
+                  {chapter.summary && (
+                    <p className="text-xs text-gray-500 mt-1 italic line-clamp-2">
+                      {chapter.summary}
+                    </p>
+                  )}
                 </div>
-                <div className="text-xs text-gray-500">
+                <div className="text-xs text-gray-500 ml-2 flex-shrink-0">
                   {formatTime(chapter.duration)}
                 </div>
               </div>
@@ -351,18 +385,6 @@ const ChaptersSection = React.memo(({ videoData }) => {
           </div>
         )}
       </div>
-
-      {/* Hidden video element for time tracking */}
-      {videoData && (videoData.blobUrl || videoData.hlsUrl) && (
-        <video
-          ref={videoRef}
-          src={videoData.blobUrl || undefined}
-          className="hidden"
-          onTimeUpdate={handleTimeUpdate}
-          onLoadedMetadata={handleLoadedMetadata}
-          preload="metadata"
-        />
-      )}
     </div>
   );
 });
@@ -402,6 +424,29 @@ export default function VideoPage({ params }) {
     const [titleCompleted, setTitleCompleted] = useState(false);
     const [hashtagsCompleted, setHashtagsCompleted] = useState(false);
     const [topicsCompleted, setTopicsCompleted] = useState(false);
+    const [chaptersLoading, setChaptersLoading] = useState(true);
+    const [videoSeekTo, setVideoSeekTo] = useState(null);
+    const [videoCurrentTime, setVideoCurrentTime] = useState(0);
+    const [videoDuration, setVideoDuration] = useState(0);
+
+    const handleVideoSeekTo = useCallback((seekFunction) => {
+      setVideoSeekTo(() => seekFunction);
+    }, []);
+
+    const handleVideoTimeUpdate = useCallback((currentTime, duration) => {
+      if (currentTime > 0) {
+        setVideoCurrentTime(currentTime);
+      }
+      if (duration > 0) {
+        setVideoDuration(duration);
+      }
+    }, []);
+
+    const handleChapterClick = useCallback((time) => {
+      if (videoSeekTo) {
+        videoSeekTo(time);
+      }
+    }, [videoSeekTo]);
 
     useEffect(() => {
       // For now, we'll get video data from localStorage
@@ -533,10 +578,64 @@ export default function VideoPage({ params }) {
         }
       }
 
+      const generateChapters = async () => {
+        try {
+          console.log('Generating chapters...');
+          setChaptersLoading(true);
+          const chaptersResult = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/generate_chapters`, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({twelve_labs_video_id: videoId})
+          });
+          
+          if (!chaptersResult.ok) {
+            throw new Error(`HTTP ${chaptersResult.status}: ${chaptersResult.statusText}`);
+          }
+          
+          const result = await chaptersResult.json();
+          console.log('Chapters generation result:', result);
+          
+          if (result && result.data && result.data.chapters) {
+            console.log('Chapters generated successfully:', result.data.chapters);
+            setGeneratedContent(prev => ({
+              ...prev,
+              chapters: result.data.chapters,
+            }));
+            setChaptersLoading(false);
+          } else if (result && result.chapters) {
+            // Handle case where chapters are directly in the result
+            console.log('Chapters found in result:', result.chapters);
+            setGeneratedContent(prev => ({
+              ...prev,
+              chapters: result.chapters,
+            }));
+            setChaptersLoading(false);
+          } else {
+            console.warn('Chapters generation result is not as expected:', result);
+            setGeneratedContent(prev => ({
+              ...prev,
+              chapters: null,
+            }));
+            setChaptersLoading(false);
+          }
+        } catch (error) {
+          console.error('Error generating chapters:', error);
+          setGeneratedContent(prev => ({
+            ...prev,
+            chapters: null,
+          }));
+          setChaptersLoading(false);
+        }
+      }
+
       // Start both fetches
       fetchVideo();
       fetchCachedAnalysis();
+      generateChapters();
       analyzeLectureWithAI();
+
 
       // Cleanup timeout on unmount
       return () => clearTimeout(loadingTimeout);
@@ -547,20 +646,46 @@ export default function VideoPage({ params }) {
       console.log('State changed - loading:', loading, 'videoData:', videoData);
     }, [loading, videoData]);
 
+    // Add debugging for chapters state changes
+    useEffect(() => {
+      console.log('Chapters state changed:', generatedContent.chapters);
+      console.log('Chapters loading state:', chaptersLoading);
+    }, [generatedContent.chapters, chaptersLoading]);
+
+    // Helper function to calculate progress percentage
+    const calculateProgress = () => {
+      const contentTypes = Object.keys(generatedContent);
+      let completedCount = 0;
+      
+      contentTypes.forEach(key => {
+        const value = generatedContent[key];
+        if (key === 'chapters') {
+          // Chapters is complete if it's an array with content
+          if (Array.isArray(value) && value.length > 0) {
+            completedCount++;
+          }
+        } else if (key === 'summary') {
+          // Summary is complete if it has content
+          if (value && typeof value === 'string' && value.trim() !== '') {
+            completedCount++;
+          }
+        } else {
+          // Other fields are complete if they have truthy values
+          if (value) {
+            completedCount++;
+          }
+        }
+      });
+      
+      return Math.round((completedCount / contentTypes.length) * 100);
+    };
+
     const analyzeLectureWithAI = async () => {
       setIsAnalyzing(true);
       setAnalysisComplete(false);
-      setGeneratedContent({
-        chapters: false,
-        summary: '',
-        keyTakeaways: false,
-        pacingRecommendations: false,
-        quizzes: false,
-        notes: false,
-        studyMaterials: false,
-        externalResources: false
-      });
-      
+
+      console.log('running analysis...')
+
       try {
         console.log('Running analysis...');
         
@@ -580,14 +705,25 @@ export default function VideoPage({ params }) {
                 ...prev,
                 summary: prev.summary + data.content,
               }));
-              console.log('Summary:', generatedContent.summary);
+            } else if (data.type == "key_takeaways") {
+              setGeneratedContent(prev => ({
+                ...prev,
+                keyTakeaways: prev.keyTakeaways + data.content,
+              }));
+            } else if (data.type == "pacing_recommendations") {
+              setGeneratedContent(prev => ({
+                ...prev,
+                pacingRecommendations: prev.pacingRecommendations + data.content,
+              }));
             } else if (data.status === 'complete') {
-              console.log(`${data.type} analysis complete`);
-              if (data.type === 'summary' || data.type === 'chapter') {
-                setAnalysisComplete(true);
-                setIsAnalyzing(false);
-                eventSource.close();
-              }
+                const progress = calculateProgress();
+                console.log('Analysis progress:', progress);
+
+                if (progress === 100) {
+                    setAnalysisComplete(true);
+                    setIsAnalyzing(false);
+                    eventSource.close();
+                }
             }
           } catch (error) {
             console.error('Error parsing SSE data:', error);
@@ -595,8 +731,8 @@ export default function VideoPage({ params }) {
         };
 
         eventSource.onerror = (error) => {
-          console.error('EventSource error:', error);
-          setIsAnalyzing(false);
+          //console.error('EventSource error:', error);
+          //setIsAnalyzing(false);
           eventSource.close();
         };
 
@@ -923,7 +1059,7 @@ export default function VideoPage({ params }) {
             {/* Video Player */}
             <div className="bg-black flex items-center justify-center p-6">
               <div className="w-full max-w-4xl">
-                <VideoPlayer videoData={videoData} />
+                <VideoPlayer videoData={videoData} onSeekTo={handleVideoSeekTo} onTimeUpdate={handleVideoTimeUpdate} />
               </div>
             </div>
 
@@ -955,7 +1091,7 @@ export default function VideoPage({ params }) {
                       <div 
                         className="bg-gradient-to-r from-blue-500 to-purple-600 h-3 rounded-full transition-all duration-500 ease-out shadow-sm"
                         style={{ 
-                          width: `${Object.values(generatedContent).filter(Boolean).length / Object.keys(generatedContent).length * 100}%` 
+                          width: `${calculateProgress()}%` 
                         }}
                       ></div>
                     </div>
@@ -964,7 +1100,7 @@ export default function VideoPage({ params }) {
                     <div className="flex items-center justify-between text-sm text-blue-700">
                       <span>Generating chapters, summaries, quizzes, and study materials...</span>
                       <span className="font-medium">
-                        {Math.round(Object.values(generatedContent).filter(Boolean).length / Object.keys(generatedContent).length * 100)}% Complete
+                        {calculateProgress()}% Complete
                       </span>
                     </div>
                   </div>
@@ -1101,6 +1237,50 @@ export default function VideoPage({ params }) {
                     />
                   )}
                 </div>
+
+                {/* Chapters Section - Full Width */}
+                {generatedContent.chapters && generatedContent.chapters.length > 0 && (
+                  <div className="mt-8">
+                    <div className="bg-white rounded-lg border border-gray-200 p-6">
+                      <h3 className="text-lg font-semibold text-gray-800 mb-4 flex items-center gap-2">
+                        <svg className="w-5 h-5 text-indigo-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                        </svg>
+                        Lecture Chapters
+                      </h3>
+                      <p className="text-sm text-gray-500 mb-6">Detailed breakdown of lecture sections with summaries and timestamps</p>
+                      
+                      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                        {generatedContent.chapters.map((chapter) => (
+                          <div
+                            key={chapter.chapter_id}
+                            className={`rounded-lg p-4 border transition-colors duration-200 cursor-pointer ${
+                              videoCurrentTime >= chapter.start_time && videoCurrentTime < chapter.end_time
+                                ? 'bg-indigo-50 border-indigo-300'
+                                : 'bg-gray-50 border-gray-200 hover:border-indigo-300'
+                            }`}
+                            onClick={() => handleChapterClick(chapter.start_time)}
+                          >
+                            <div className="flex items-start justify-between mb-2">
+                              <h4 className="font-medium text-gray-800 text-sm">{chapter.title}</h4>
+                              <span className="text-xs text-gray-500 bg-white px-2 py-1 rounded">
+                                {Math.floor(chapter.start_time / 60)}:{(chapter.start_time % 60).toString().padStart(2, '0')}
+                              </span>
+                            </div>
+                            <p className="text-xs text-gray-600 line-clamp-3">
+                              {chapter.summary}
+                            </p>
+                            <div className="mt-3 pt-2 border-t border-gray-200">
+                              <span className="text-xs text-gray-500">
+                                Duration: {Math.floor((chapter.end_time - chapter.start_time) / 60)}:{((chapter.end_time - chapter.start_time) % 60).toString().padStart(2, '0')}
+                              </span>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+                )}
               </div>
             </div>
           </main>
@@ -1129,7 +1309,7 @@ export default function VideoPage({ params }) {
 
               {/* Chapters Section */}
               {showChapters ? (
-                <ChaptersSection videoData={videoData} />
+                <ChaptersSection videoData={videoData} chapters={generatedContent.chapters} loading={chaptersLoading} seekTo={handleChapterClick} currentTime={videoCurrentTime} duration={videoDuration} />
               ) : (
                 <div className="text-center py-4 text-gray-500 text-sm">
                   <svg className="w-8 h-8 mx-auto mb-2 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">

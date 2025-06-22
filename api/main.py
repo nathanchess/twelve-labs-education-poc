@@ -8,7 +8,7 @@ from flask import Flask, request, jsonify, Response
 from flask_cors import CORS, cross_origin
 
 # Configure logging
-logging.basicConfig(level=logging.DEBUG)
+logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 app = Flask(__name__)
@@ -209,6 +209,52 @@ def run_analysis():
 
     except Exception as e:
         logger.error(f"=== Error in run_analysis endpoint: {str(e)} ===")
+        return jsonify({
+            'status': 'error',
+            'message': str(e)
+        }), 500
+
+@app.route('/generate_chapters', methods=['POST'])
+@cross_origin()
+def generate_chapters():
+    
+    """
+    Generates chapters for a video.
+
+    Returns a dictionary with the following keys:
+    - 'status': 'success' or 'error'
+    - 'message': 'Chapters generated successfully' or error message
+    - 'data': dictionary with provider names as keys and their respective analysis results as values
+    
+    """
+
+    try:
+
+        data = request.json
+        twelve_labs_video_id = data.get('twelve_labs_video_id')
+
+        if not twelve_labs_video_id:
+            return jsonify({
+                'status': 'error',
+                'message': 'twelve_labs_video_id is required'
+            }), 400
+        
+        twelvelabs_provider = TwelveLabsHandler(twelve_labs_video_id=twelve_labs_video_id)
+
+        chapters = twelvelabs_provider.generate_chapters()
+
+        print(f"Chapters: {chapters}")
+
+        return jsonify({
+            'status': 'success',
+            'message': 'Chapters generated successfully',
+            'data': chapters
+        }), 200
+    
+    except Exception as e:
+
+        print(f"Error in generate_chapters endpoint: {str(e)}")
+
         return jsonify({
             'status': 'error',
             'message': str(e)

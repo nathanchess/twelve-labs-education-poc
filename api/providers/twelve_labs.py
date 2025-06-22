@@ -1,5 +1,7 @@
 from twelvelabs import TwelveLabs
+from helpers import prompts, data_schema, LectureBuilderAgent
 
+import pydantic
 import os
 import json
 import asyncio
@@ -12,29 +14,23 @@ class TwelveLabsHandler:
     def __init__(self, twelve_labs_index_id: str = "", twelve_labs_video_id: str = ""):
 
         self.twelve_labs_client = TwelveLabs(api_key=os.getenv("TWELVE_LABS_API_KEY"))
+        self.reasoning_agent = LectureBuilderAgent()
 
         self.twelve_labs_index_id = twelve_labs_index_id
         self.twelve_labs_video_id = twelve_labs_video_id
         
         self.indexes = dict()
 
-        # Prompts for the video deconstruction focused on student learning.
-        self.summary_prompt = "Summarize the video in less than 5 sentences. Listen to the audio and summarize the video in a way that is helpful for a student to understand the topic being discussed."
-        self.key_takeaways_prompt = "Generate key takeaways from the video. Listen to the audio and generate key takeaways that are helpful for a student to understand the topic being discussed."
-        self.chapter_prompt = """
-        Generate chapters that covers the detailed subtopics of the video that the instructor is teaching. 
-        Make the chapter title and summary be helpful for a student to understand the topic being discussed.
-        The chapter summary should break down the subtopic into easy to understand instructions, concepts, and more.
-        Label each chapter with an approrpriate title with the topic being discussed and methodology while being concise.
-        Each chapter should have a detailed start and end time.
-        
-        Response must be in JSON format. Do not include any preamble or postamble.
-        """
-
         # Internal video attributes
         self.title = None
         self.hashtags = None
         self.topics = None
+        self.summary = None
+        self.key_takeaways = None
+        self.pacing_recommendations = None
+        self.chapters = None
+        self.quiz_questions = None
+        self.flashcards = None
 
         print("Initialized TwelveLabsHandler for video: ", self.twelve_labs_video_id)
 
@@ -105,20 +101,25 @@ class TwelveLabsHandler:
 
             output_queue = asyncio.Queue()
 
-            summary_coroutine = self._process_coroutine(stream_type='summary', prompt=self.summary_prompt, output_queue=output_queue)
-            
+            summary_coroutine = self._process_coroutine(stream_type='summary', prompt=prompts.summary_prompt, output_queue=output_queue)
+            key_takeaways_coroutine = self._process_coroutine(stream_type='key_takeaways', prompt=prompts.key_takeaways_prompt, output_queue=output_queue)
+            pacing_recommendations_coroutine = self._process_coroutine(stream_type='pacing_recommendations', prompt=prompts.pacing_recommendations_prompt, output_queue=output_queue)
+
             #chapter_coroutine = self._process_coroutine(stream_type='chapter', prompt=self.chapter_prompt, output_queue=output_queue)
 
             summary_task = asyncio.create_task(summary_coroutine)
+            key_takeaways_task = asyncio.create_task(key_takeaways_coroutine)
+            pacing_recommendations_task = asyncio.create_task(pacing_recommendations_coroutine)
             #chapter_task = asyncio.create_task(chapter_coroutine)
 
-            tasks_to_complete = [summary_task]
+            tasks_to_complete = [summary_task, key_takeaways_task, pacing_recommendations_task]
             completed_stream_count = 0
             total_streams = len(tasks_to_complete)
 
             stream_status = {
                 'summary': False,
                 'key_takeaways': False,
+                'pacing_recommendations': False,
             }
 
             while completed_stream_count < total_streams:
@@ -157,6 +158,35 @@ class TwelveLabsHandler:
         except Exception as e:
 
             raise Exception(f"Error deconstructing video: {str(e)}")
+        
+    def generate_chapters(self):
+
+        """
+        
+        Generates chapters for video according to data schema defined.
+
+        If output from TwelveLabs provider cannot be validated against the data schema, it will be reformatted by reasoning model.
+        
+        """
+
+        try:
+
+            raw_chapters = self.twelve_labs_client.analyze(video_id=self.twelve_labs_video_id, prompt=prompts.chapter_prompt)
+            chapters = data_schema.ChaptersSchema.model_validate_json(raw_chapters)
+
+            self.chapters = chapters
+
+            return chapters
+        
+        except pydantic.ValidationError as e:
+
+            response = self.reasoning_agent.reformat_text(text=raw_chapters, data_schema=data_schema.ChaptersSchema)
+            return response.model_dump()
+        
+        except Exception as e:
+
+            raise Exception(f"Error generating chapters: {str(e)}")
+
 
     def generate_gist(self):
 
