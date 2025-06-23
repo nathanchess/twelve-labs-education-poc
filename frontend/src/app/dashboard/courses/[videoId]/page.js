@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import { useState, useEffect, use, useRef, useCallback } from 'react';
 import Hls from 'hls.js';
 import React from 'react';
+import { useFormState } from 'react-dom';
 
 // Separate Video Player Component - completely isolated
 const VideoPlayer = React.memo(({ videoData, onSeekTo, onTimeUpdate }) => {
@@ -47,9 +48,31 @@ const VideoPlayer = React.memo(({ videoData, onSeekTo, onTimeUpdate }) => {
   };
 
   const seekTo = (time) => {
+    console.log('seekTo called with time:', time, 'videoRef.current:', !!videoRef.current);
     if (videoRef.current) {
-      videoRef.current.currentTime = time;
-      setCurrentTime(time);
+      // Ensure time is a valid number and handle 0 seconds properly
+      const seekTime = Math.max(0, Number(time) || 0);
+      console.log('Setting currentTime to:', seekTime);
+      
+      try {
+        videoRef.current.currentTime = seekTime;
+        setCurrentTime(seekTime);
+        console.log('Successfully set currentTime to:', seekTime);
+      } catch (error) {
+        console.error('Error setting currentTime:', error);
+        // Fallback: try to seek using a small delay
+        setTimeout(() => {
+          try {
+            videoRef.current.currentTime = seekTime;
+            setCurrentTime(seekTime);
+            console.log('Successfully set currentTime with delay to:', seekTime);
+          } catch (delayError) {
+            console.error('Error setting currentTime with delay:', delayError);
+          }
+        }, 100);
+      }
+    } else {
+      console.warn('videoRef.current is null, cannot seek');
     }
   };
 
@@ -390,17 +413,11 @@ const ChaptersSection = React.memo(({ videoData, chapters, loading, seekTo, curr
 });
 
 export default function VideoPage({ params }) {
-  // Move use(params) outside try-catch to avoid Suspense exception issues
   const { videoId } = use(params);
   
   try {
-    //console.log('VideoPage component starting...');
-    //console.log('Params:', params);
-    //console.log('VideoId extracted:', videoId);
-    
-    const { userRole, userName, isLoggedIn } = useUser();
-    //console.log('User context loaded:', { userRole, userName, isLoggedIn });
-    
+
+    const { userRole, userName, isLoggedIn } = useUser(); 
     const router = useRouter();
     const [videoData, setVideoData] = useState(null);
     const [loading, setLoading] = useState(true);
@@ -409,14 +426,12 @@ export default function VideoPage({ params }) {
     const [analysisComplete, setAnalysisComplete] = useState(false);
     const [generatedContent, setGeneratedContent] = useState({
       chapters: false,
-      summary: false,
+      summary: '',
       keyTakeaways: false,
       pacingRecommendations: false,
-      quizzes: false,
-      notes: false,
-      studyMaterials: false,
-      externalResources: false
+      quizQuestions: false,
     });
+    const [quizChapterSelect, setQuizChapterSelect] = useState(1);
 
     const [generatedTitle, setGeneratedTitle] = useState(null);
     const [generatedHashtags, setGeneratedHashtags] = useState(null);
@@ -428,13 +443,14 @@ export default function VideoPage({ params }) {
     const [videoSeekTo, setVideoSeekTo] = useState(null);
     const [videoCurrentTime, setVideoCurrentTime] = useState(0);
     const [videoDuration, setVideoDuration] = useState(0);
+    const [publishing, setPublishing] = useState(false);
 
     const handleVideoSeekTo = useCallback((seekFunction) => {
       setVideoSeekTo(() => seekFunction);
     }, []);
 
     const handleVideoTimeUpdate = useCallback((currentTime, duration) => {
-      if (currentTime > 0) {
+      if (currentTime >= 0) {
         setVideoCurrentTime(currentTime);
       }
       if (duration > 0) {
@@ -442,9 +458,25 @@ export default function VideoPage({ params }) {
       }
     }, []);
 
-    const handleChapterClick = useCallback((time) => {
-      if (videoSeekTo) {
-        videoSeekTo(time);
+    const handleChapterClick = useCallback((time, chapterId = null) => {
+      console.log('handleChapterClick called with time:', time, 'chapterId:', chapterId, 'videoSeekTo:', !!videoSeekTo);
+      
+      if (time !== null && time !== undefined) {
+        console.log('Attempting to seek to time:', time);
+        if (videoSeekTo) {
+          videoSeekTo(time);
+        } else {
+          console.warn('videoSeekTo function is not available');
+        }
+      } else {
+        console.warn('Time is null or undefined, skipping seek');
+      }
+      
+      if (chapterId !== null && chapterId !== undefined) {
+        console.log('Setting quizChapterSelect to:', chapterId);
+        setQuizChapterSelect(chapterId);
+      } else {
+        console.log('chapterId is null or undefined, skipping quiz selection');
       }
     }, [videoSeekTo]);
 
@@ -630,27 +662,137 @@ export default function VideoPage({ params }) {
         }
       }
 
+      const generateKeyTakeaways = async () => {
+        try {
+          console.log('Generating key takeaways...');
+          const keyTakeawaysResult = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/generate_key_takeaways`, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({twelve_labs_video_id: videoId})
+          });
+          
+          if (!keyTakeawaysResult.ok) {
+            throw new Error(`HTTP ${keyTakeawaysResult.status}: ${keyTakeawaysResult.statusText}`);
+          }
+
+          const result = await keyTakeawaysResult.json();
+          console.log('Key takeaways generation result:', result);
+          
+          if (result && result.data && result.data.key_takeaways) {
+            console.log('Key takeaways generated successfully:', result.data.key_takeaways);
+            setGeneratedContent(prev => ({
+              ...prev,
+              keyTakeaways: result.data.key_takeaways,
+            }));
+          } else {
+            console.warn('Key takeaways generation result is not as expected:', result);
+            setGeneratedContent(prev => ({
+              ...prev,
+              keyTakeaways: null,
+            }));
+          }
+        } catch (error) {
+          console.error('Error generating key takeaways:', error);
+          setGeneratedContent(prev => ({
+            ...prev,
+            keyTakeaways: null,
+          }));
+        }
+      }
+
+      const generatePacingRecommendations = async () => {
+        try {
+          const pacingRecommendationsResult = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/generate_pacing_recommendations`, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({twelve_labs_video_id: videoId})
+          });
+          
+          if (!pacingRecommendationsResult.ok) {
+            throw new Error(`HTTP ${pacingRecommendationsResult.status}: ${pacingRecommendationsResult.statusText}`);
+          }
+          
+          const result = await pacingRecommendationsResult.json();
+          console.log('Pacing recommendations generation result:', result);
+          
+          if (result && result.data && result.data.recommendations) {
+            console.log('Pacing recommendations generated successfully:', result.data.pacing_recommendations);
+            setGeneratedContent(prev => ({
+              ...prev,
+              pacingRecommendations: result.data.recommendations,
+            }));
+          } else {
+            console.warn('Pacing recommendations generation result is not as expected:', result);
+            setGeneratedContent(prev => ({
+              ...prev,
+              pacingRecommendations: null,
+            }));
+          }
+        } catch (error) {
+          console.error('Error generating pacing recommendations:', error);
+          setGeneratedContent(prev => ({
+            ...prev,
+            pacingRecommendations: null,
+          }));
+        }
+      }
+
+      const generateQuizQuestions = async () => {
+        try {
+          const quizQuestionsResult = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/generate_quiz_questions`, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({twelve_labs_video_id: videoId})
+          });
+          
+          if (!quizQuestionsResult.ok) {
+            throw new Error(`HTTP ${quizQuestionsResult.status}: ${quizQuestionsResult.statusText}`);
+          }
+
+          const result = await quizQuestionsResult.json();
+          console.log('Quiz questions generation result:', result);
+          
+          if (result && result.data && result.data.quiz_questions) {
+            console.log('Quiz questions generated successfully:', result.data.quiz_questions);
+            setGeneratedContent(prev => ({
+              ...prev,
+              quizQuestions: result.data.quiz_questions,
+            }));
+          } else {
+            console.warn('Quiz questions generation result is not as expected:', result);
+            setGeneratedContent(prev => ({
+              ...prev,
+              quizQuestions: null,
+            }));
+          }
+        } catch (error) {
+          console.error('Error generating quiz questions:', error);
+          setGeneratedContent(prev => ({
+            ...prev,
+            quizQuestions: null,
+          }));
+        }
+      }
+
       // Start both fetches
       fetchVideo();
       fetchCachedAnalysis();
       generateChapters();
       analyzeLectureWithAI();
-
+      generateKeyTakeaways();
+      generatePacingRecommendations();
+      generateQuizQuestions();
 
       // Cleanup timeout on unmount
       return () => clearTimeout(loadingTimeout);
     }, [videoId]);
 
-    // Add debugging for state changes
-    useEffect(() => {
-      console.log('State changed - loading:', loading, 'videoData:', videoData);
-    }, [loading, videoData]);
-
-    // Add debugging for chapters state changes
-    useEffect(() => {
-      console.log('Chapters state changed:', generatedContent.chapters);
-      console.log('Chapters loading state:', chaptersLoading);
-    }, [generatedContent.chapters, chaptersLoading]);
 
     // Helper function to calculate progress percentage
     const calculateProgress = () => {
@@ -680,6 +822,14 @@ export default function VideoPage({ params }) {
       return Math.round((completedCount / contentTypes.length) * 100);
     };
 
+    // Effect to handle completion when progress reaches 100%
+    useEffect(() => {
+      if (isAnalyzing && calculateProgress() === 100) {
+        setIsAnalyzing(false);
+        setAnalysisComplete(true);
+      }
+    }, [generatedContent, isAnalyzing]);
+
     const analyzeLectureWithAI = async () => {
       setIsAnalyzing(true);
       setAnalysisComplete(false);
@@ -705,19 +855,8 @@ export default function VideoPage({ params }) {
                 ...prev,
                 summary: prev.summary + data.content,
               }));
-            } else if (data.type == "key_takeaways") {
-              setGeneratedContent(prev => ({
-                ...prev,
-                keyTakeaways: prev.keyTakeaways + data.content,
-              }));
-            } else if (data.type == "pacing_recommendations") {
-              setGeneratedContent(prev => ({
-                ...prev,
-                pacingRecommendations: prev.pacingRecommendations + data.content,
-              }));
             } else if (data.status === 'complete') {
                 const progress = calculateProgress();
-                console.log('Analysis progress:', progress);
 
                 if (progress === 100) {
                     setAnalysisComplete(true);
@@ -731,8 +870,6 @@ export default function VideoPage({ params }) {
         };
 
         eventSource.onerror = (error) => {
-          //console.error('EventSource error:', error);
-          //setIsAnalyzing(false);
           eventSource.close();
         };
 
@@ -763,21 +900,7 @@ export default function VideoPage({ params }) {
       </div>
     );
 
-    const GeneratingIndicator = ({ title, isGenerating }) => (
-      <div className="bg-white rounded-lg border border-gray-200 p-6">
-        <h3 className="text-lg font-semibold text-gray-800 mb-4">{title}</h3>
-        {isGenerating && (
-          <div className="flex items-center gap-3 text-blue-600">
-            <div className="w-4 h-4 border-2 border-blue-500 border-t-transparent rounded-full animate-spin"></div>
-            <span className="text-sm font-medium">Generating content...</span>
-          </div>
-        )}
-      </div>
-    );
-
-    // Typewriter component for streaming text animation
     const Typewriter = ({ text, speed = 50, className = "" }) => {
-      // Return null if text is undefined or null
       if (!text) {
         return null;
       }
@@ -839,34 +962,24 @@ export default function VideoPage({ params }) {
         return null;
       }
 
-      const [showTitle, setShowTitle] = useState(titleCompleted);
-      const [showHashtags, setShowHashtags] = useState(hashtagsCompleted);
-      const [showTopics, setShowTopics] = useState(topicsCompleted);
-      const [hasInitialized, setHasInitialized] = useState(false);
-
       useEffect(() => {
-        if (!hasInitialized && (hasValidTitle || hasValidHashtags || hasValidTopics)) {
-          setHasInitialized(true);
-          if (hasValidTitle && !titleCompleted) {
-            setTimeout(() => {
-              setShowTitle(true);
-              setTitleCompleted(true);
-            }, 500);
-          }
-          if (hasValidHashtags && !hashtagsCompleted) {
-            setTimeout(() => {
-              setShowHashtags(true);
-              setHashtagsCompleted(true);
-            }, 1200);
-          }
-          if (hasValidTopics && !topicsCompleted) {
-            setTimeout(() => {
-              setShowTopics(true);
-              setTopicsCompleted(true);
-            }, 1800);
-          }
+        if (hasValidTitle) {
+          setTimeout(() => {
+            setTitleCompleted(true);
+          }, 2000);
         }
-      }, [hasValidTitle, hasValidHashtags, hasValidTopics, hasInitialized, titleCompleted, hashtagsCompleted, topicsCompleted]);
+        if (hasValidHashtags) {
+          setTimeout(() => {
+            setHashtagsCompleted(true);
+          }, 2000);
+        }
+        if (hasValidTopics) {
+          setTimeout(() => {
+            setTopicsCompleted(true);
+          }, 2000);
+        }
+      }, [hasValidTitle, hasValidHashtags, hasValidTopics]);
+      
 
       // Show everything immediately if already completed
       if (titleCompleted && hashtagsCompleted && topicsCompleted) {
@@ -895,48 +1008,21 @@ export default function VideoPage({ params }) {
         );
       }
 
-      // Show everything immediately if not animating
-      if (!hasInitialized && (hasValidTitle || hasValidHashtags || hasValidTopics)) {
-        return (
-          <div className="mb-8">
-            {hasValidTitle && (
-              <h2 className="text-2xl font-bold text-gray-900 mb-2">
-                <Typewriter text={title} speed={30} className="inline-block" />
-              </h2>
-            )}
-            {hasValidHashtags && (
-              <div className="flex flex-wrap gap-2 mb-2">
-                {hashtags.map((hashtag, idx) => (
-                  <span key={idx} className="text-blue-700 bg-blue-100 px-3 py-1 rounded-full text-sm font-medium">#{hashtag}</span>
-                ))}
-              </div>
-            )}
-            {hasValidTopics && (
-              <div className="flex flex-wrap gap-2">
-                {topics.map((topic, idx) => (
-                  <span key={idx} className="bg-gray-200 text-gray-800 px-3 py-1 rounded-full text-sm font-medium">{topic}</span>
-                ))}
-              </div>
-            )}
-          </div>
-        );
-      }
-
       return (
         <div className="mb-8">
-          {showTitle && hasValidTitle && (
+          {!titleCompleted && (
             <h2 className="text-2xl font-bold text-gray-900 mb-2">
               <Typewriter text={title} speed={30} className="inline-block" />
             </h2>
           )}
-          {showHashtags && hasValidHashtags && (
+          {!hashtagsCompleted && (
             <div className="flex flex-wrap gap-2 mb-2 animate-fade-in">
               {hashtags.map((hashtag, idx) => (
                 <span key={idx} className="text-blue-700 bg-blue-100 px-3 py-1 rounded-full text-sm font-medium">#{hashtag}</span>
               ))}
             </div>
           )}
-          {showTopics && hasValidTopics && (
+          {!topicsCompleted && (
             <div className="flex flex-wrap gap-2 animate-fade-in">
               {topics.map((topic, idx) => (
                 <span key={idx} className="bg-gray-200 text-gray-800 px-3 py-1 rounded-full text-sm font-medium">{topic}</span>
@@ -947,8 +1033,40 @@ export default function VideoPage({ params }) {
       );
     };
 
-    //console.log('Component rendering - loading:', loading, 'videoData:', videoData);
-    //console.log('Authentication state - isLoggedIn:', isLoggedIn, 'userRole:', userRole, 'userName:', userName);
+    const handlePublish = async () => {
+      setPublishing(true);
+      try {
+        // Placeholder API call - replace with actual endpoint
+        const response = await fetch('/api/publish-course', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            videoId: params.videoId,
+            title: generatedTitle || videoData?.name,
+            chapters: generatedContent.chapters,
+            quizQuestions: generatedContent.quizQuestions,
+            keyTakeaways: generatedContent.keyTakeaways,
+            pacingRecommendations: generatedContent.pacingRecommendations
+          }),
+        });
+
+        if (response.ok) {
+          const result = await response.json();
+          console.log('Course published successfully:', result);
+          // You can add a success notification here
+          alert('Course published successfully!');
+        } else {
+          throw new Error('Failed to publish course');
+        }
+      } catch (error) {
+        console.error('Error publishing course:', error);
+        alert('Failed to publish course. Please try again.');
+      } finally {
+        setPublishing(false);
+      }
+    };
 
     if (loading) {
       return (
@@ -1106,6 +1224,41 @@ export default function VideoPage({ params }) {
                   </div>
                 )}
 
+                {/* AI Content Generated Success */}
+                {!isAnalyzing && calculateProgress() === 100 && (
+                  <div className="mb-8 bg-gradient-to-r from-green-50 to-emerald-50 rounded-xl p-6 border border-green-200">
+                    <div className="flex items-center gap-4 mb-4">
+                      <div className="w-8 h-8 bg-green-500 rounded-full flex items-center justify-center">
+                        <svg className="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                        </svg>
+                      </div>
+                      <div>
+                        <h2 className="text-xl font-bold text-green-800">AI Content Generated</h2>
+                        <p className="text-green-600">Your lecture has been successfully analyzed and all educational content is ready!</p>
+                      </div>
+                    </div>
+                    
+                    {/* Progress Bar - Full */}
+                    <div className="w-full bg-green-200 rounded-full h-3 mb-3">
+                      <div 
+                        className="bg-gradient-to-r from-green-500 to-emerald-600 h-3 rounded-full transition-all duration-500 ease-out shadow-sm"
+                        style={{ 
+                          width: '100%' 
+                        }}
+                      ></div>
+                    </div>
+                    
+                    {/* Success Text */}
+                    <div className="flex items-center justify-between text-sm text-green-700">
+                      <span>All content generated successfully - ready for publishing</span>
+                      <span className="font-medium">
+                        100% Complete
+                      </span>
+                    </div>
+                  </div>
+                )}
+
                 {/* Content Sections */}
                 <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
                   {/* Video Summary */}
@@ -1144,18 +1297,13 @@ export default function VideoPage({ params }) {
                       </h3>
                       <p className="text-sm text-gray-500 mb-4">Essential concepts and insights to remember from this lecture</p>
                       <div className="space-y-3">
-                        <div className="flex items-start gap-3">
-                          <div className="w-2 h-2 bg-purple-500 rounded-full mt-2 flex-shrink-0"></div>
-                          <p className="text-gray-700">Modern web development requires understanding both frontend and backend technologies</p>
-                        </div>
-                        <div className="flex items-start gap-3">
-                          <div className="w-2 h-2 bg-purple-500 rounded-full mt-2 flex-shrink-0"></div>
-                          <p className="text-gray-700">Performance optimization is crucial for user experience and SEO</p>
-                        </div>
-                        <div className="flex items-start gap-3">
-                          <div className="w-2 h-2 bg-purple-500 rounded-full mt-2 flex-shrink-0"></div>
-                          <p className="text-gray-700">State management patterns help maintain clean and scalable code</p>
-                        </div>
+                        {generatedContent.keyTakeaways.map((keyTakeaway) => (
+                          <div className="flex items-start gap-3" key={keyTakeaway}> 
+                            <div className="w-2 h-2 bg-purple-500 rounded-full mt-2 flex-shrink-0"></div>
+                            <p className="text-gray-700">{keyTakeaway}</p>
+                          </div>
+                        ))}
+                        
                       </div>
                     </div>
                   ) : (
@@ -1180,18 +1328,30 @@ export default function VideoPage({ params }) {
                       </h3>
                       <p className="text-sm text-gray-500 mb-4">Suggested study schedule and time allocation for optimal learning</p>
                       <div className="space-y-3">
-                        <div className="flex items-center justify-between p-3 bg-orange-50 rounded-lg">
-                          <span className="text-gray-700">Watch full lecture</span>
-                          <span className="text-orange-600 font-medium">45 min</span>
-                        </div>
-                        <div className="flex items-center justify-between p-3 bg-orange-50 rounded-lg">
-                          <span className="text-gray-700">Review key concepts</span>
-                          <span className="text-orange-600 font-medium">15 min</span>
-                        </div>
-                        <div className="flex items-center justify-between p-3 bg-orange-50 rounded-lg">
-                          <span className="text-gray-700">Practice exercises</span>
-                          <span className="text-orange-600 font-medium">30 min</span>
-                        </div>
+                        {generatedContent.pacingRecommendations.map((pacingRecommendation) => (
+                          <div className="flex flex-col p-4 bg-orange-50 rounded-lg space-y-2" key={pacingRecommendation.start_time}>
+                            <div className="flex items-center justify-between">
+                              <div className="flex items-center space-x-2">
+                                <svg className="w-4 h-4 text-orange-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                                </svg>
+                                <span className="text-sm text-orange-600">
+                                  {Math.floor(pacingRecommendation.start_time / 60)}:{String(Math.floor(pacingRecommendation.start_time % 60)).padStart(2, '0')} - 
+                                  {Math.floor(pacingRecommendation.end_time / 60)}:{String(Math.floor(pacingRecommendation.end_time % 60)).padStart(2, '0')}
+                                </span>
+                              </div>
+                              <span className={`text-sm font-medium px-2 py-1 rounded ${
+                                pacingRecommendation.severity === 'High' ? 'bg-red-100 text-red-700' :
+                                pacingRecommendation.severity === 'Medium' ? 'bg-yellow-100 text-yellow-700' :
+                                'bg-green-100 text-green-700'
+                              }`}>
+                                {pacingRecommendation.severity}
+                              </span>
+                            </div>
+                            <p className="text-gray-700">{pacingRecommendation.recommendation}</p>
+                          </div>
+                        ))}
+                        
                       </div>
                     </div>
                   ) : (
@@ -1246,47 +1406,210 @@ export default function VideoPage({ params }) {
                         <svg className="w-5 h-5 text-indigo-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
                         </svg>
-                        Lecture Chapters
+                        Lecture Quiz (By Chapter)
                       </h3>
                       <p className="text-sm text-gray-500 mb-6">Detailed breakdown of lecture sections with summaries and timestamps</p>
                       
                       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                         {generatedContent.chapters.map((chapter) => (
-                          <div
-                            key={chapter.chapter_id}
-                            className={`rounded-lg p-4 border transition-colors duration-200 cursor-pointer ${
-                              videoCurrentTime >= chapter.start_time && videoCurrentTime < chapter.end_time
-                                ? 'bg-indigo-50 border-indigo-300'
-                                : 'bg-gray-50 border-gray-200 hover:border-indigo-300'
-                            }`}
-                            onClick={() => handleChapterClick(chapter.start_time)}
-                          >
-                            <div className="flex items-start justify-between mb-2">
-                              <h4 className="font-medium text-gray-800 text-sm">{chapter.title}</h4>
-                              <span className="text-xs text-gray-500 bg-white px-2 py-1 rounded">
-                                {Math.floor(chapter.start_time / 60)}:{(chapter.start_time % 60).toString().padStart(2, '0')}
-                              </span>
-                            </div>
-                            <p className="text-xs text-gray-600 line-clamp-3">
-                              {chapter.summary}
-                            </p>
-                            <div className="mt-3 pt-2 border-t border-gray-200">
-                              <span className="text-xs text-gray-500">
-                                Duration: {Math.floor((chapter.end_time - chapter.start_time) / 60)}:{((chapter.end_time - chapter.start_time) % 60).toString().padStart(2, '0')}
-                              </span>
+                          <div key={chapter.chapter_id + 'chapter'}>
+                             <div
+                              key={chapter.chapter_id}
+                              className={`rounded-lg p-4 border transition-colors duration-200 cursor-pointer ${
+                                videoCurrentTime >= chapter.start_time && videoCurrentTime < chapter.end_time
+                                  ? 'bg-indigo-50 border-indigo-300'
+                                  : 'bg-gray-50 border-gray-200 hover:border-indigo-300'
+                              }`}
+                              onClick={() => handleChapterClick(chapter.start_time, chapter.chapter_id)}
+                            >
+                              <div className="flex items-start justify-between mb-2">
+                                <h4 className="font-medium text-gray-800 text-sm">{chapter.title}</h4>
+                                <span className="text-xs text-gray-500 bg-white px-2 py-1 rounded">
+                                  {Math.floor(chapter.start_time / 60)}:{(chapter.start_time % 60).toString().padStart(2, '0')}
+                                </span>
+                              </div>
+                              <p className="text-xs text-gray-600 line-clamp-3">
+                                {chapter.summary}
+                              </p>
+                              <div className="mt-3 pt-2 border-t border-gray-200">
+                                <span className="text-xs text-gray-500">
+                                  Duration: {Math.floor((chapter.end_time - chapter.start_time) / 60)}:{((chapter.end_time - chapter.start_time) % 60).toString().padStart(2, '0')}
+                                </span>
+                              </div>
                             </div>
                           </div>
                         ))}
                       </div>
+
+                      {/* Quiz Questions Display - Full Width */}
+                      {quizChapterSelect && generatedContent.quizQuestions && (
+                        <div className="mt-8 w-full p-6 bg-white border border-gray-200 rounded-lg shadow-sm">
+                          {(() => {
+                            const selectedChapter = generatedContent.chapters?.find(ch => ch.chapter_id === quizChapterSelect);
+                            const chapterQuestions = generatedContent.quizQuestions.filter(q => q.chapter_id === quizChapterSelect);
+                            
+                            return (
+                              <div>
+                                <div className="flex items-center justify-between mb-6">
+                                  <h4 className="text-xl font-semibold text-gray-800 flex items-center gap-2">
+                                    <svg className="w-6 h-6 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8.228 9c.549-1.165 2.03-2 3.772-2 2.21 0 4 1.343 4 3 0 1.4-1.278 2.575-3.006 2.907-.542.104-.994.54-.994 1.093m0 3h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                                    </svg>
+                                    Quiz Questions - {selectedChapter?.title || 'Chapter'}
+                                  </h4>
+                                  <div className="flex items-center gap-4">
+                                    <span className="text-sm text-gray-500 bg-gray-100 px-3 py-1 rounded-full">
+                                      {chapterQuestions.length} questions
+                                    </span>
+                                    <button 
+                                      onClick={() => setQuizChapterSelect(null)}
+                                      className="text-gray-400 hover:text-gray-600 transition-colors"
+                                    >
+                                      <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                                      </svg>
+                                    </button>
+                                  </div>
+                                </div>
+                                
+                                {chapterQuestions.length > 0 ? (
+                                  <div className="space-y-6">
+                                    {chapterQuestions.map((question, questionIndex) => {
+                                      // Create A,B,C,D options by combining correct answer with wrong answers
+                                      const allOptions = [question.answer, ...question.wrong_answers];
+                                      // Shuffle the options to randomize A,B,C,D
+                                      const shuffledOptions = allOptions.sort(() => Math.random() - 0.5);
+                                      const correctOptionIndex = shuffledOptions.indexOf(question.answer);
+                                      const optionLabels = ['A', 'B', 'C', 'D'];
+                                      
+                                      return (
+                                        <div key={`${quizChapterSelect}-${questionIndex}`} className="bg-gray-50 rounded-lg p-6 border border-gray-200">
+                                          <div className="flex items-start gap-4 mb-4">
+                                            <div className="flex-shrink-0 w-8 h-8 bg-green-100 text-green-700 rounded-full flex items-center justify-center text-sm font-semibold">
+                                              {questionIndex + 1}
+                                            </div>
+                                            <div className="flex-1">
+                                              <h5 className="font-medium text-gray-800 text-lg mb-4">{question.question}</h5>
+                                              
+                                              <div className="space-y-3">
+                                                {shuffledOptions.map((option, optionIndex) => (
+                                                  <div 
+                                                    key={optionIndex}
+                                                    className={`p-4 rounded-lg border-2 transition-all ${
+                                                      optionIndex === correctOptionIndex
+                                                        ? 'bg-green-50 border-green-300 text-green-800'
+                                                        : 'bg-white border-gray-200 text-gray-700 hover:border-gray-300'
+                                                    }`}
+                                                  >
+                                                    <div className="flex items-center gap-3">
+                                                      <div className={`flex-shrink-0 w-6 h-6 rounded-full flex items-center justify-center text-sm font-semibold ${
+                                                        optionIndex === correctOptionIndex
+                                                          ? 'bg-green-500 text-white'
+                                                          : 'bg-gray-200 text-gray-600'
+                                                      }`}>
+                                                        {optionLabels[optionIndex]}
+                                                      </div>
+                                                      <span className="font-medium">{option}</span>
+                                                      {optionIndex === correctOptionIndex && (
+                                                        <div className="ml-auto">
+                                                          <svg className="w-5 h-5 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                                                          </svg>
+                                                        </div>
+                                                      )}
+                                                    </div>
+                                                  </div>
+                                                ))}
+                                              </div>
+                                              
+                                              <div className="mt-4 p-3 bg-green-50 border border-green-200 rounded-lg">
+                                                <div className="flex items-center gap-2">
+                                                  <svg className="w-4 h-4 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                                                  </svg>
+                                                  <span className="text-sm font-semibold text-green-700">Correct Answer: {optionLabels[correctOptionIndex]}</span>
+                                                </div>
+                                              </div>
+                                            </div>
+                                          </div>
+                                        </div>
+                                      );
+                                    })}
+                                  </div>
+                                ) : (
+                                  <div className="text-center py-12">
+                                    <svg className="w-16 h-16 text-gray-400 mx-auto mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8.228 9c.549-1.165 2.03-2 3.772-2 2.21 0 4 1.343 4 3 0 1.4-1.278 2.575-3.006 2.907-.542.104-.994.54-.994 1.093m0 3h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                                    </svg>
+                                    <h3 className="text-lg font-semibold text-gray-800 mb-2">No Quiz Questions Available</h3>
+                                    <p className="text-gray-500 text-sm">No quiz questions have been generated for this chapter yet.</p>
+                                  </div>
+                                )}
+                              </div>
+                            );
+                          })()}
+                        </div>
+                      )}
                     </div>
                   </div>
                 )}
               </div>
             </div>
+
+            {/* Publish Button Section */}
+            <div className="mt-8 p-6 bg-white border border-gray-200 rounded-lg shadow-sm">
+              <div className="flex items-center justify-between">
+                <div>
+                  <h3 className="text-lg font-semibold text-gray-800 mb-2">Ready to Publish?</h3>
+                  <p className="text-sm text-gray-600">
+                    Publish this course to make it available to your students. All generated content will be included.
+                  </p>
+                </div>
+                <button
+                  onClick={handlePublish}
+                  disabled={publishing || !generatedContent.chapters}
+                  className={`px-6 py-3 rounded-lg font-medium transition-all duration-200 flex items-center gap-2 ${
+                    publishing || !generatedContent.chapters
+                      ? 'bg-gray-300 text-gray-500 cursor-not-allowed'
+                      : 'bg-green-600 text-white hover:bg-green-700 shadow-md hover:shadow-lg'
+                  }`}
+                >
+                  {publishing ? (
+                    <>
+                      <svg className="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24">
+                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                      </svg>
+                      Publishing...
+                    </>
+                  ) : (
+                    <>
+                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" />
+                      </svg>
+                      Publish Course
+                    </>
+                  )}
+                </button>
+              </div>
+              
+              {!generatedContent.chapters && (
+                <div className="mt-4 p-3 bg-yellow-50 border border-yellow-200 rounded-lg">
+                  <div className="flex items-center gap-2">
+                    <svg className="w-4 h-4 text-yellow-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L3.732 16.5c-.77.833.192 2.5 1.732 2.5z" />
+                    </svg>
+                    <span className="text-sm text-yellow-700">
+                      Generate content first before publishing
+                    </span>
+                  </div>
+                </div>
+              )}
+            </div>
           </main>
 
           {/* Right Sidebar - Chapters and Info */}
-          <aside className="w-80 bg-white border-l border-gray-200 flex-shrink-0 overflow-y-auto">
+          <aside className="w-120 bg-white border-l border-gray-200 flex-shrink-0 overflow-y-auto">
             <div className="p-6">
               {/* Video Info */}
               <div className="bg-gray-50 rounded-xl p-4 mb-6">

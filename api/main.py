@@ -4,8 +4,9 @@ from helpers import DBHandler
 import json
 import asyncio
 import logging
-from flask import Flask, request, jsonify, Response
+from flask import Flask, request, jsonify, Response, session
 from flask_cors import CORS, cross_origin
+import os
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -13,6 +14,7 @@ logger = logging.getLogger(__name__)
 
 app = Flask(__name__)
 CORS(app)
+app.secret_key = os.urandom(24)
 
 @app.route('/upload_video', methods=['POST'])
 @cross_origin()
@@ -25,46 +27,29 @@ def upload_video():
     Each row will contain UID of each video in their respective providers and metadata regarding AI inference outputs from each provider.
     
     """
-
-    logger.info("=== Starting upload_video endpoint ===")
     
     try:
-        logger.info("Parsing request data...")
         data = request.get_json()
-        logger.info(f"Request data received: {data}")
 
         if not data:
-            logger.error("No JSON data received in request")
             return jsonify({
                 'status': 'error',
                 'message': 'No JSON data received'
             }), 400
 
-        logger.info("Initializing DBHandler...")
         db_handler = DBHandler()
         
         twelve_labs_video_id = data.get('twelve_labs_video_id')
-        logger.info(f"Twelve Labs video ID: {twelve_labs_video_id}")
         
         if not twelve_labs_video_id:
-            logger.error("No twelve_labs_video_id provided in request")
             return jsonify({
                 'status': 'error',
                 'message': 'twelve_labs_video_id is required'
             }), 400
 
-        logger.info("Calling upload_video_ids...")
         result = db_handler.upload_video_ids(twelve_labs_video_id=twelve_labs_video_id)
-        logger.info(f"Upload result: {result}")
-        
-        logger.info("=== upload_video endpoint completed successfully ===")
         
     except Exception as e:
-        
-        logger.error(f"=== Error in upload_video endpoint: {str(e)} ===")
-        logger.error(f"Exception type: {type(e).__name__}")
-        import traceback
-        logger.error(f"Full traceback: {traceback.format_exc()}")
         
         return jsonify({
             'status': 'error',
@@ -88,31 +73,25 @@ def cached_analysis():
     3. AWS Nova:
     
     """
-
-    logger.info("=== Starting cached_analysis endpoint ===")
     
     try:
         data = request.json
-        logger.info(f"Request data received: {data}")
-
         twelve_labs_video_id = data.get('twelve_labs_video_id')
-        logger.info(f"Twelve Labs video ID: {twelve_labs_video_id}")
 
         if not twelve_labs_video_id:
-            logger.error("No twelve_labs_video_id provided in request")
             return jsonify({
                 'statusCode': 400,
                 'message': 'twelve_labs_video_id is required'
             }), 400
+        
+        if not session.get(twelve_labs_video_id):
+            session[twelve_labs_video_id] = {}
 
-        logger.info("Initializing TwelveLabsHandler...")
         twelvelabs_provider = TwelveLabsHandler(twelve_labs_video_id=twelve_labs_video_id)
 
-        logger.info("Generating gist...")
         gist_result = twelvelabs_provider.generate_gist()
-        logger.info(f"Gist result: {gist_result}")
-
-        logger.info("=== cached_analysis endpoint completed successfully ===")
+        
+        session[twelve_labs_video_id]['gist'] = gist_result
 
         return jsonify({
             'statusCode': 200,
@@ -123,10 +102,6 @@ def cached_analysis():
         })
 
     except Exception as e:
-        logger.error(f"=== Error in cached_analysis endpoint: {str(e)} ===")
-        logger.error(f"Exception type: {type(e).__name__}")
-        import traceback
-        logger.error(f"Full traceback: {traceback.format_exc()}")
 
         return jsonify({
             'statusCode': 500,
@@ -163,10 +138,11 @@ def run_analysis():
                 'message': 'video_id/twelve_labs_video_id is required'
             }), 400
 
+        if not session.get(twelve_labs_video_id):
+            session[twelve_labs_video_id] = {}
+
         twelvelabs_provider = TwelveLabsHandler(twelve_labs_video_id=twelve_labs_video_id)
 
-        logger.info("Running analysis...")
-        
         def generate():
             try:
                 async def async_generate():
@@ -208,7 +184,6 @@ def run_analysis():
         )
 
     except Exception as e:
-        logger.error(f"=== Error in run_analysis endpoint: {str(e)} ===")
         return jsonify({
             'status': 'error',
             'message': str(e)
@@ -239,9 +214,13 @@ def generate_chapters():
                 'message': 'twelve_labs_video_id is required'
             }), 400
         
+        if not session.get(twelve_labs_video_id):
+            session[twelve_labs_video_id] = {}
+
         twelvelabs_provider = TwelveLabsHandler(twelve_labs_video_id=twelve_labs_video_id)
 
         chapters = twelvelabs_provider.generate_chapters()
+        session[twelve_labs_video_id]['chapters'] = chapters
 
         print(f"Chapters: {chapters}")
 
@@ -259,7 +238,124 @@ def generate_chapters():
             'status': 'error',
             'message': str(e)
         }), 500
+    
+@app.route('/generate_pacing_recommendations', methods=['POST'])
+@cross_origin()
+def generate_pacing_recommendations():
+
+    """
+    Generates pacing recommendations for a video.
+    """
+
+    try:
+
+        data = request.json
+        twelve_labs_video_id = data.get('twelve_labs_video_id')
+
+        if not twelve_labs_video_id:
+            return jsonify({
+                'status': 'error',
+                'message': 'twelve_labs_video_id is required'
+            }), 400
+
+        twelvelabs_provider = TwelveLabsHandler(twelve_labs_video_id=twelve_labs_video_id)
+
+        pacing_recommendations = twelvelabs_provider.generate_pacing_recommendations()
+
+        return jsonify({
+            'status': 'success',
+            'message': 'Pacing recommendations generated successfully',
+            'data': pacing_recommendations
+        }), 200
+    
+    except Exception as e:
+
+        print(f"Error in generate_pacing_recommendations endpoint: {str(e)}")
+
+        return jsonify({
+            'status': 'error',
+            'message': str(e)
+        }), 500
+    
+@app.route('/generate_key_takeaways', methods=['POST'])
+@cross_origin()
+def generate_key_takeaways():
+
+    """
+    Generates key takeaways for a video.
+    """
+
+    try:
+
+        data = request.json
+        twelve_labs_video_id = data.get('twelve_labs_video_id')
+
+        if not twelve_labs_video_id:
+            return jsonify({
+                'status': 'error',
+                'message': 'twelve_labs_video_id is required'
+            }), 400
+        
+
+        twelvelabs_provider = TwelveLabsHandler(twelve_labs_video_id=twelve_labs_video_id)
+
+        key_takeaways = twelvelabs_provider.generate_key_takeaways()
+
+        return jsonify({
+            'status': 'success',
+            'message': 'Key takeaways generated successfully',
+            'data': key_takeaways
+        }), 200
+    
+    except Exception as e:
+
+        print(f"Error in generate_key_takeaways endpoint: {str(e)}")
+
+        return jsonify({
+            'status': 'error',
+            'message': str(e)
+        }), 500
+
+@app.route('/generate_quiz_questions', methods=['POST'])
+@cross_origin()
+def generate_quiz_questions():
+
+    """
+    Generates quiz questions for a video.
+    """
+
+    try:
+
+        data = request.json
+        twelve_labs_video_id = data.get('twelve_labs_video_id')
+
+        if not twelve_labs_video_id:
+            return jsonify({
+                'status': 'error',
+                'message': 'twelve_labs_video_id is required'
+            }), 400
+        
+        print(session.get(twelve_labs_video_id)) 
+
+        twelvelabs_provider = TwelveLabsHandler(twelve_labs_video_id=twelve_labs_video_id)
+
+        quiz_questions = twelvelabs_provider.generate_quiz_questions(session)
+
+        return jsonify({
+            'status': 'success',
+            'message': 'Quiz questions generated successfully',
+            'data': quiz_questions
+        }), 200
+    
+    except Exception as e:
+
+        print(f"Error in generate_quiz_questions endpoint: {e}")
+
+        return jsonify({
+            'status': 'error',
+            'message': str(e)
+        }), 500
 
 if __name__ == "__main__":
 
-    app.run(debug=True)
+    app.run(debug=True) 

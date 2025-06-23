@@ -22,7 +22,7 @@ class LectureBuilderAgent:
             response = self.instructor_client.chat.completions.create(
                 model=self.bedrock_model_id,
                 messages=[
-                    {'role': 'user', 'content': f'Reformat the following text to match the following data schema: {data_schema.model_json_schema()}. The text is: {text}'}
+                    {'role': 'user', 'content': f'Reformat the following text to match the following data schema: {data_schema.model_json_schema()}. Change the tone to be instructional towards a student trying to learn. The text is: {text}'}
                 ],
                 response_model=data_schema
             )

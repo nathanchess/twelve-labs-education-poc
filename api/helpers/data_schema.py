@@ -28,6 +28,7 @@ class ChaptersSchema(pydantic.BaseModel):
 class QuizQuestion(pydantic.BaseModel):
     question: str
     answer: str
+    wrong_answers: list[str]
     chapter_id: int
 
 class QuizQuestionsSchema(pydantic.BaseModel):

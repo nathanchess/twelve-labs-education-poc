@@ -102,24 +102,20 @@ class TwelveLabsHandler:
             output_queue = asyncio.Queue()
 
             summary_coroutine = self._process_coroutine(stream_type='summary', prompt=prompts.summary_prompt, output_queue=output_queue)
-            key_takeaways_coroutine = self._process_coroutine(stream_type='key_takeaways', prompt=prompts.key_takeaways_prompt, output_queue=output_queue)
-            pacing_recommendations_coroutine = self._process_coroutine(stream_type='pacing_recommendations', prompt=prompts.pacing_recommendations_prompt, output_queue=output_queue)
-
+            #key_takeaways_coroutine = self._process_coroutine(stream_type='key_takeaways', prompt=prompts.key_takeaways_prompt, output_queue=output_queue)
+            #pacing_recommendations_coroutine = self._process_coroutine(stream_type='pacing_recommendations', prompt=prompts.pacing_recommendations_prompt, output_queue=output_queue)
             #chapter_coroutine = self._process_coroutine(stream_type='chapter', prompt=self.chapter_prompt, output_queue=output_queue)
 
             summary_task = asyncio.create_task(summary_coroutine)
-            key_takeaways_task = asyncio.create_task(key_takeaways_coroutine)
-            pacing_recommendations_task = asyncio.create_task(pacing_recommendations_coroutine)
+            #key_takeaways_task = asyncio.create_task(key_takeaways_coroutine)
             #chapter_task = asyncio.create_task(chapter_coroutine)
 
-            tasks_to_complete = [summary_task, key_takeaways_task, pacing_recommendations_task]
+            tasks_to_complete = [summary_task]
             completed_stream_count = 0
             total_streams = len(tasks_to_complete)
 
             stream_status = {
                 'summary': False,
-                'key_takeaways': False,
-                'pacing_recommendations': False,
             }
 
             while completed_stream_count < total_streams:
@@ -181,12 +177,99 @@ class TwelveLabsHandler:
         except pydantic.ValidationError as e:
 
             response = self.reasoning_agent.reformat_text(text=raw_chapters, data_schema=data_schema.ChaptersSchema)
+            self.chapters = response
+
             return response.model_dump()
         
         except Exception as e:
 
             raise Exception(f"Error generating chapters: {str(e)}")
+        
+    def generate_key_takeaways(self):
 
+        """
+        
+        Generates key takeaways for the video.
+        
+        """
+
+        try:
+
+            raw_key_takeaways = self.twelve_labs_client.analyze(video_id=self.twelve_labs_video_id, prompt=prompts.key_takeaways_prompt)
+            key_takeaways = data_schema.KeyTakeawaysSchema.model_validate_json(raw_key_takeaways)
+
+            self.key_takeaways = key_takeaways
+
+            return key_takeaways
+        
+        except pydantic.ValidationError as e:
+
+            response = self.reasoning_agent.reformat_text(text=raw_key_takeaways, data_schema=data_schema.KeyTakeawaysSchema)
+            self.key_takeaways = response
+
+            return response.model_dump()
+        
+        except Exception as e:
+
+            raise Exception(f"Error generating key takeaways: {str(e)}")
+        
+    def generate_pacing_recommendations(self):
+
+        """
+        
+        Generates pacing recommendations for the video.
+        
+        """
+
+        try:
+
+            raw_pacing_recommendations = self.twelve_labs_client.analyze(video_id=self.twelve_labs_video_id, prompt=prompts.pacing_recommendations_prompt)
+            pacing_recommendations = data_schema.PacingRecommendationsSchema.model_validate_json(raw_pacing_recommendations)
+
+            self.pacing_recommendations = pacing_recommendations
+
+            return pacing_recommendations
+        
+        except pydantic.ValidationError as e:
+
+            response = self.reasoning_agent.reformat_text(text=raw_pacing_recommendations, data_schema=data_schema.PacingRecommendationsSchema)
+            self.pacing_recommendations = response
+            
+            return response.model_dump()
+        
+        except Exception as e:
+            
+            raise Exception(f"Error generating pacing recommendations: {str(e)}")
+        
+    def generate_quiz_questions(self, session: dict):
+
+        """
+        
+        Generates quiz questions for the video.
+        
+        """
+
+        quiz_questions_prompt = prompts.quiz_questions_prompt.format("")
+
+        try:
+
+            raw_quiz_questions = self.twelve_labs_client.analyze(video_id=self.twelve_labs_video_id, prompt=quiz_questions_prompt)
+            quiz_questions = data_schema.QuizQuestionsSchema.model_validate_json(raw_quiz_questions)
+
+            self.quiz_questions = quiz_questions
+
+            return quiz_questions
+        
+        except pydantic.ValidationError as e:
+            
+            response = self.reasoning_agent.reformat_text(text=raw_quiz_questions, data_schema=data_schema.QuizQuestionsSchema)
+            self.quiz_questions = response
+
+            return response.model_dump()
+        
+        except Exception as e:
+
+            raise Exception(f"Error generating quiz questions: {e}")
 
     def generate_gist(self):
 
@@ -201,6 +284,10 @@ class TwelveLabsHandler:
             gist = self.twelve_labs_client.gist(video_id=self.twelve_labs_video_id, types=['topic', 'hashtag', 'title'])
 
             title, hashtags, topics = gist.title, gist.hashtags.root, gist.topics.root
+
+            self.title = title
+            self.hashtags = hashtags
+            self.topics = topics
 
             return {
                 'title': title,

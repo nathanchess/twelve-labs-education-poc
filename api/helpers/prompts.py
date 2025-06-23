@@ -1,17 +1,33 @@
 summary_prompt = """
 Summarize the video in less than 5 sentences. Listen to the audio and summarize the video in a way that is helpful for a student to understand the topic being discussed.
-Response must be in JSON format. Include a "summary" field. Do not include any preamble or postamble.
 """
 
 key_takeaways_prompt = """
 Generate key takeaways from the video. It should be key definitions and bullet points. 
 Listen to the audio and generate key takeaways that are helpful for a student to understand the topic being discussed.
-Response must be in JSON format. Include a "key_takeaways" field. Do not include any preamble or postamble.
+
+Ensure it follows the following data schema:
+
+class KeyTakeawaysSchema(pydantic.BaseModel):
+    key_takeaways: list[str]
 """
 
 pacing_recommendations_prompt = """
 Generate pacing recommendations for the video. It should be a list of recommendations for the instructor to pace the video. Listen to the audio and generate pacing recommendations that are helpful for a student to understand the topic being discussed.
-Response must be in JSON format. Do not include any preamble or postamble.
+It should NOT cover every single second of the video. It should be a list of recommendations for the instructor to pace the video.
+Make the timestamps very short and specific.
+
+Ensure it follows the following data schema:
+
+class PacingRecommendation(pydantic.BaseModel):
+    start_time: float
+    end_time: float
+    recommendation: str
+    severity: str
+
+class PacingRecommendationsSchema(pydantic.BaseModel):
+    recommendations: list[PacingRecommendation]
+
 """
 
 chapter_prompt = """
@@ -33,4 +49,19 @@ class ChaptersSchema(pydantic.BaseModel):
     chapters: list[ChapterSchema]
 
 Response must be in JSON format. Do not include any preamble or postamble.
+"""
+
+quiz_questions_prompt = """
+Generate quiz questions for the video. It should be a list of quiz questions that are helpful for a student to understand the topic being discussed.
+
+Here are the chapters of the video:
+{}
+
+Ensure it follows the following data schema:
+
+class QuizQuestion(pydantic.BaseModel):
+    question: str
+    answer: str
+    wrong_answers: list[str]
+    chapter_id: int
 """
