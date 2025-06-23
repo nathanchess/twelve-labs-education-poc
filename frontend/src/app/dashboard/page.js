@@ -28,7 +28,14 @@ export default function Dashboard() {
       const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/get_published_courses`);
       if (response.ok) {
         const result = await response.json();
-        setPublishedCourses(result.data || []);
+        // Filter out courses that do not have chapters metadata...
+        const courses = result.data.map((course) => {
+          if (!course.chapters) {
+            return null;
+          }
+          return course;
+        }).filter(course => course !== null);
+        setPublishedCourses(courses || []);
       } else {
         console.error('Failed to fetch published courses');
       }
@@ -247,25 +254,6 @@ export default function Dashboard() {
             </div>
           )}
         </div>
-        
-        {/* Global State Display */}
-        {/**<div className="mt-8 bg-white rounded-2xl shadow-lg p-6">
-          <h3 className="text-lg font-semibold text-gray-800 mb-4">Global State Information</h3>
-          <div className="bg-gray-50 rounded-lg p-4">
-            <p className="text-sm text-gray-600">
-              <strong>User Name:</strong> {userName || 'Not provided'}
-            </p>
-            <p className="text-sm text-gray-600">
-              <strong>Current User Role:</strong> {userRole}
-            </p>
-            <p className="text-sm text-gray-600">
-              <strong>Login Status:</strong> {isLoggedIn ? 'Logged In' : 'Not Logged In'}
-            </p>
-            <p className="text-sm text-gray-600 mt-2">
-              This information is stored in global state and can be accessed from any page in the application.
-            </p>
-          </div>
-        </div> **/}
       </div>
     </div>
   );

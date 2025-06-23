@@ -117,8 +117,8 @@ export default function VideoPlayer({ videoData, onSeekTo, onTimeUpdate }) {
         });
         
         hls.on(Hls.Events.ERROR, (event, data) => {
-          console.error('HLS error event:', event);
-          console.error('HLS error data:', data);
+          //console.error('HLS error event:', event);
+          //console.error('HLS error data:', data);
           
           if (data.fatal) {
             setVideoError(`Video streaming error: ${data.details || 'Unknown error'}`);
