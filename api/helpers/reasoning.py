@@ -1,6 +1,5 @@
 import pydantic
 import boto3
-import json
 import instructor
 
 class LectureBuilderAgent:

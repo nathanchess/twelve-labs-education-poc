@@ -345,6 +345,44 @@ def generate_quiz_questions():
             'message': str(e)
         }), 500
     
+@app.route('/generate_engagement', methods=['POST'])
+@cross_origin()
+def generate_engagement():
+    
+    """
+    Generates engagement for a video.
+    """
+    
+    try:
+
+        data = request.json
+        twelve_labs_video_id = data.get('twelve_labs_video_id')
+
+        if not twelve_labs_video_id:
+            return jsonify({
+                'status': 'error',
+                'message': 'twelve_labs_video_id is required'
+            }), 400
+        
+        twelvelabs_provider = TwelveLabsHandler(twelve_labs_video_id=twelve_labs_video_id)
+
+        engagement = twelvelabs_provider.generate_engagement()
+
+        return jsonify({
+            'status': 'success',
+            'message': 'Engagement generated successfully',
+            'data': engagement
+        }), 200
+    
+    except Exception as e:
+        
+        print(f"Error in generate_engagement endpoint: {e}")
+        
+        return jsonify({
+            'status': 'error',
+            'message': str(e)
+        }), 500
+
 @app.route('/publish_course', methods=['POST'])
 @cross_origin()
 def publish_course():
@@ -372,14 +410,15 @@ def publish_course():
         key_takeaways = data.get('key_takeaways')
         pacing_recommendations = data.get('pacing_recommendations')
         summary = data.get('summary')
+        engagement = data.get('engagement')
 
-        if not video_id or not title or not chapters or not quiz_questions or not key_takeaways or not pacing_recommendations or not summary:
+        if not video_id or not title or not chapters or not quiz_questions or not key_takeaways or not pacing_recommendations or not summary or not engagement:
             return jsonify({
                 'status': 'error',
                 'message': 'Missing required fields'
             }), 400
 
-        result = db_handler.upload_course_metadata(video_id=video_id, title=title, chapters=chapters, quiz_questions=quiz_questions, key_takeaways=key_takeaways, pacing_recommendations=pacing_recommendations, summary=summary)
+        result = db_handler.upload_course_metadata(video_id=video_id, title=title, chapters=chapters, quiz_questions=quiz_questions, key_takeaways=key_takeaways, pacing_recommendations=pacing_recommendations, summary=summary, engagement=engagement)
 
         return jsonify({
             'status': 'success',

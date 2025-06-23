@@ -11,7 +11,7 @@ export default function VideoPage({ params }) {
   const { videoId } = use(params);
   const { userRole, userName, isLoggedIn } = useUser(); 
 
-  if (userRole === 'instructor') {
+  if (true) {
     return <InstructorCourseView videoId={videoId} />
   } else {
     return <div>Student Course View</div>

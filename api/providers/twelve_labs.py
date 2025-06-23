@@ -278,6 +278,35 @@ class TwelveLabsHandler:
         except Exception as e:
 
             raise Exception(f"Error generating quiz questions: {e}")
+        
+    def generate_engagement(self):
+
+        """
+
+        Generates engagement for the video.
+        
+        """
+        
+        try:
+
+            raw_engagement = self.twelve_labs_client.analyze(video_id=self.twelve_labs_video_id, prompt=prompts.engagement_prompt)
+            engagement = data_schema.EngagementListSchema.model_validate_json(raw_engagement)
+
+            self.engagement = engagement
+
+            return engagement
+        
+        except pydantic.ValidationError as e:
+
+            response = self.reasoning_agent.reformat_text(text=raw_engagement, data_schema=data_schema.EngagementListSchema)
+            self.engagement = response
+
+            return response.model_dump()
+        
+        except Exception as e:
+
+            raise Exception(f"Error generating engagement: {str(e)}")
+        
 
     def generate_gist(self):
 

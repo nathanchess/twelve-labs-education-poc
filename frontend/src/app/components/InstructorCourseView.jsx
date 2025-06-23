@@ -1,9 +1,7 @@
 'use client';
 
-import { useUser } from '../context/UserContext';
 import { useRouter } from 'next/navigation';
-import { useState, useEffect, use, useRef, useCallback } from 'react';
-import Hls from 'hls.js';
+import { useState, useEffect, useCallback } from 'react';
 import React from 'react';
 import VideoPlayer from './VideoPlayer';
 import ChaptersSection from './ChaptersSection';
@@ -19,7 +17,6 @@ export default function InstructorCourseView({ videoId }) {
   
   try {
 
-    const { userRole, userName, isLoggedIn } = useUser(); 
     const router = useRouter();
     const [videoData, setVideoData] = useState(null);
     const [loading, setLoading] = useState(true);
@@ -32,6 +29,7 @@ export default function InstructorCourseView({ videoId }) {
       keyTakeaways: false,
       pacingRecommendations: false,
       quizQuestions: false,
+      engagement: false,
     });
     const [quizChapterSelect, setQuizChapterSelect] = useState(1);
 
@@ -83,18 +81,15 @@ export default function InstructorCourseView({ videoId }) {
     }, [videoSeekTo]);
 
     const fetchVideo = async () => {
-      //console.log('Fetching video data from TwelveLabs...');
       const retrievalURL = `https://api.twelvelabs.io/v1.3/indexes/${process.env.NEXT_PUBLIC_TWELVE_LABS_INDEX_ID}/videos/${videoId}?transcription=true`
       try {
         const retrieveVideoResponse = await fetch(retrievalURL, options);
-        //console.log('Response status:', retrieveVideoResponse.status);
         
         if (!retrieveVideoResponse.ok) {
           throw new Error(`HTTP ${retrieveVideoResponse.status}: ${retrieveVideoResponse.statusText}`);
         }
         
         const result = await retrieveVideoResponse.json();
-        //console.log('Retrieved video data:', result);
 
         // Create a fallback video data structure
         const videoData = {
@@ -155,6 +150,7 @@ export default function InstructorCourseView({ videoId }) {
             keyTakeaways: result.data.key_takeaways || false,
             pacingRecommendations: result.data.pacing_recommendations || false,
             quizQuestions: result.data.quiz_questions || false,
+            engagement: result.data.engagement || false,
           }
 
           // Set the existing course data
@@ -429,6 +425,46 @@ export default function InstructorCourseView({ videoId }) {
       }
     }
 
+    const generateEngagement = async () => {
+      console.log('Generating engagement...');
+      try {
+        const engagementResult = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/generate_engagement`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({twelve_labs_video_id: videoId})
+        });
+        
+        if (!engagementResult.ok) {
+          throw new Error(`HTTP ${engagementResult.status}: ${engagementResult.statusText}`);
+        }
+
+        const result = await engagementResult.json();
+        console.log('Engagement generation result:', result);
+        
+        if (result && result.data && result.data.engagement) {
+          console.log('Engagement generated successfully:', result.data.engagement);
+          setGeneratedContent(prev => ({
+            ...prev,
+            engagement: result.data.engagement,
+          }));
+        } else {
+          console.warn('Engagement generation result is not as expected:', result);
+          setGeneratedContent(prev => ({
+            ...prev,
+            engagement: null,
+          }));
+        }
+      } catch (error) {
+        console.error('Error generating engagement:', error);
+        setGeneratedContent(prev => ({
+          ...prev,
+          engagement: null,
+        }));
+      }
+    }
+
     useEffect(() => {
 
       const initializeCourse = async () => {
@@ -436,24 +472,33 @@ export default function InstructorCourseView({ videoId }) {
         
         const hasExistingData = await fetchExistingCourseMetadata();
 
-        console.log('generatedContent', generatedContent)
-
-        if (hasExistingData.chapters && hasExistingData.summary && hasExistingData.keyTakeaways && hasExistingData.pacingRecommendations && hasExistingData.quizQuestions) {
-          console.log('has existing data, fetching cached analysis')
+        if (hasExistingData.engagement && hasExistingData.chapters && hasExistingData.summary && hasExistingData.keyTakeaways && hasExistingData.pacingRecommendations && hasExistingData.quizQuestions) {
           await fetchCachedAnalysis();
         } else {
-          console.log('data is missing or incomplete, generating new content')
+          console.log('existing data: ', hasExistingData);
           setIsAnalyzing(true);
           setAnalysisComplete(false);
           await fetchCachedAnalysis();
-          await analyzeLectureWithAI();
+          if (!hasExistingData.summary) {
+            await analyzeLectureWithAI();
+          }
+          if (!hasExistingData.keyTakeaways) {
           await generateKeyTakeaways();
-          await generatePacingRecommendations();
-          await generateChapters();
+          }
+          if (!hasExistingData.pacingRecommendations) {
+            await generatePacingRecommendations();
+          }
+          if (!hasExistingData.engagement) {
+            await generateEngagement();
+          }
+          if (!hasExistingData.chapters) {
+            await generateChapters();
+          }
         }
       };
 
       initializeCourse();
+
       
     }, [videoId]);
 
@@ -712,7 +757,8 @@ export default function InstructorCourseView({ videoId }) {
             chapters: generatedContent.chapters,
             quiz_questions: generatedContent.quizQuestions,
             key_takeaways: generatedContent.keyTakeaways,
-            pacing_recommendations: generatedContent.pacingRecommendations
+            pacing_recommendations: generatedContent.pacingRecommendations,
+            engagement: generatedContent.engagement,
           }),
         });
 
@@ -1031,35 +1077,90 @@ export default function InstructorCourseView({ videoId }) {
                     />
                   )}
 
-                  {/* Study Notes */}
-                  {generatedContent.notes ? (
+                  {/* Engagement Events */}
+                  {generatedContent.engagement && Array.isArray(generatedContent.engagement) && generatedContent.engagement.length > 0 ? (
                     <div className="bg-white rounded-lg border border-gray-200 p-6">
                       <h3 className="text-lg font-semibold text-gray-800 mb-1 flex items-center gap-2">
-                        <svg className="w-5 h-5 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+                        <svg className="w-5 h-5 text-pink-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M14.828 14.828a4 4 0 01-5.656 0M9 10h1m4 0h1m-6 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
                         </svg>
-                        Study Notes
+                        Student Engagement Events
                       </h3>
-                      <p className="text-sm text-gray-500 mb-4">Detailed notes and important concepts from the lecture</p>
-                      <div className="space-y-3">
-                        <div className="p-3 bg-blue-50 rounded-lg">
-                          <h4 className="font-medium text-blue-800 mb-2">Frontend Development</h4>
-                          <p className="text-blue-700 text-sm">Focus on responsive design and modern CSS frameworks. Understand component-based architecture.</p>
-                        </div>
-                        <div className="p-3 bg-blue-50 rounded-lg">
-                          <h4 className="font-medium text-blue-800 mb-2">Backend Integration</h4>
-                          <p className="text-blue-700 text-sm">Learn API design patterns and database optimization techniques.</p>
-                        </div>
+                      <p className="text-sm text-gray-500 mb-4">Key moments of student engagement and emotional responses during the lecture</p>
+                      <div className="space-y-4">
+                        {generatedContent.engagement.map((engagement, index) => {
+                          // Define emotion colors and icons
+                          const emotionConfig = {
+                            happy: { color: 'green', bgColor: 'green-50', borderColor: 'green-200', icon: '😊' },
+                            sad: { color: 'blue', bgColor: 'blue-50', borderColor: 'blue-200', icon: '😢' },
+                            angry: { color: 'red', bgColor: 'red-50', borderColor: 'red-200', icon: '😠' },
+                            surprised: { color: 'yellow', bgColor: 'yellow-50', borderColor: 'yellow-200', icon: '😲' },
+                            confused: { color: 'purple', bgColor: 'purple-50', borderColor: 'purple-200', icon: '😕' },
+                            bored: { color: 'gray', bgColor: 'purple-50', borderColor: 'purple-200', icon: '😴' }
+                          };
+                          
+                          const config = emotionConfig[engagement.emotion.toLowerCase()] || emotionConfig.confused;
+                          
+                          return (
+                            <div key={index} className={`p-4 rounded-lg border-2 ${config.bgColor} ${config.borderColor}`}>
+                              <div className="flex items-start justify-between mb-3">
+                                <div className="flex items-center gap-3">
+                                  <span className="text-2xl">{config.icon}</span>
+                                  <div>
+                                    <h4 className="font-semibold text-gray-800 capitalize">{engagement.emotion}</h4>
+                                    <div className="flex items-center gap-2 mt-1">
+                                      <span className="text-sm text-gray-600">Engagement Level:</span>
+                                      <div className="flex gap-1">
+                                        {[1, 2, 3, 4, 5].map((level) => (
+                                          <div
+                                            key={level}
+                                            className={`w-3 h-3 rounded-full ${
+                                              level <= engagement.engagement_level
+                                                ? `bg-${config.color}-500`
+                                                : 'bg-gray-200'
+                                            }`}
+                                          />
+                                        ))}
+                                      </div>
+                                      <span className="text-sm font-medium text-gray-700">({engagement.engagement_level}/5)</span>
+                                    </div>
+                                  </div>
+                                </div>
+                                <div className="text-right">
+                                  <span className="text-sm font-medium text-gray-600 bg-white px-2 py-1 rounded border">
+                                    {engagement.timestamp}
+                                  </span>
+                                </div>
+                              </div>
+                              
+                              <div className="space-y-2">
+                                <div>
+                                  <h5 className="text-sm font-medium text-gray-700 mb-1">What happened:</h5>
+                                  <p className="text-sm text-gray-600 bg-white p-2 rounded border">
+                                    {engagement.description}
+                                  </p>
+                                </div>
+                                
+                                <div>
+                                  <h5 className="text-sm font-medium text-gray-700 mb-1">Why it occurred:</h5>
+                                  <p className="text-sm text-gray-600 bg-white p-2 rounded border">
+                                    {engagement.reason}
+                                  </p>
+                                </div>
+                              </div>
+                            </div>
+                          );
+                        })}
                       </div>
                     </div>
                   ) : (
                     <ContentSkeleton 
-                      title="Study Notes"
-                      icon={<svg className="w-5 h-5 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+                      title="Student Engagement Events"
+                      icon={<svg className="w-5 h-5 text-pink-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M14.828 14.828a4 4 0 01-5.656 0M9 10h1m4 0h1m-6 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
                       </svg>}
-                      color="blue"
-                      description="Detailed notes and important concepts from the lecture"
+                      color="pink"
+                      description="Key moments of student engagement and emotional responses during the lecture"
                     />
                   )}
                 </div>

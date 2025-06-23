@@ -42,4 +42,14 @@ class Flashcard(pydantic.BaseModel):
 class FlashcardsSchema(pydantic.BaseModel):
     flashcards: list[Flashcard]
 
-__all__ = ['SummarySchema', 'PacingRecommendationsSchema', 'KeyTakeawaysSchema', 'ChaptersSchema', 'QuizQuestionsSchema', 'FlashcardsSchema']
+class EngagementSchema(pydantic.BaseModel):
+    emotion: str
+    engagement_level: int
+    description: str
+    reason: str
+    timestamp: str
+
+class EngagementListSchema(pydantic.BaseModel):
+    engagement: list[EngagementSchema]
+
+__all__ = ['SummarySchema', 'PacingRecommendationsSchema', 'KeyTakeawaysSchema', 'ChaptersSchema', 'QuizQuestionsSchema', 'FlashcardsSchema', 'EngagementSchema', 'EngagementListSchema']

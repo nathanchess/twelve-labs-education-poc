@@ -59,7 +59,7 @@ Generate quiz questions for the video. It should be a list of quiz questions tha
 Here are the chapters of the video:
 {}
 
-Please give at least 1 quiz question per chapter with a maximum of 4 questions per chapter. Make sure it is not just a random question, but one that is educational and helps the student understand the topic being discussed.
+Please give at maximum 3 quiz questions per chapter. You may give less than 3 questions per chapter if the chapter is short. Make sure it is not just a random question, but one that is educational and helps the student understand the topic being discussed.
 
 Ensure it follows the following data schema:
 
@@ -68,4 +68,38 @@ class QuizQuestion(pydantic.BaseModel):
     answer: str
     wrong_answers: list[str]
     chapter_id: int
+
+Response must be in JSON format. Do not include any preamble or postamble.
+"""
+
+engagement_prompt = """
+Listen to the audio and watch the video and generate a list of engagement events.
+This could be events like students nodding their heads, looking confused, clapping, laughing, etc.
+Do not make up any events, please only make events where there is CLEAR evidence of the student or audience being engaged in the lecture.
+Do not confuse with videos or other media that are not the lecture.
+
+Please give a maximum of 5 engagement events.
+
+The emotion key must be one of the following:
+- happy
+- sad
+- angry
+- surprised
+- confused
+- bored
+Only use the above emotions and do not make up any other emotions.
+
+Ensure it follows the following data schema:
+
+class EngagementSchema(pydantic.BaseModel):
+    emotion: str
+    engagement_level: int
+    description: str
+    reason: str
+    timestamp: str
+
+class EngagementListSchema(pydantic.BaseModel):
+    engagement: list[EngagementSchema]
+
+Response must be in JSON format. Do not include any preamble or postamble.
 """
