@@ -12,6 +12,8 @@ const VideoPlayer = React.memo(({ videoData, onSeekTo, onTimeUpdate }) => {
   const [currentTime, setCurrentTime] = useState(0);
   const [duration, setDuration] = useState(0);
   const [isPlaying, setIsPlaying] = useState(false);
+  const [videoError, setVideoError] = useState(null);
+  const [isLoading, setIsLoading] = useState(true);
   const videoRef = useRef(null);
 
   const handleTimeUpdate = () => {
@@ -96,13 +98,33 @@ const VideoPlayer = React.memo(({ videoData, onSeekTo, onTimeUpdate }) => {
         debug: false,
         enableWorker: true,
         lowLatencyMode: false,
-        backBufferLength: 90
+        backBufferLength: 90,
+        // Add configuration to handle buffer holes
+        maxBufferLength: 30,
+        maxMaxBufferLength: 600,
+        maxBufferSize: 60 * 1000 * 1000, // 60MB
+        maxBufferHole: 0.5,
+        highBufferWatchdogPeriod: 2,
+        nudgeOffset: 0.2,
+        nudgeMaxRetry: 5,
+        maxFragLookUpTolerance: 0.25,
+        liveSyncDurationCount: 3,
+        liveMaxLatencyDurationCount: 10,
+        // Enable gap handling
+        enableSoftwareAES: true,
+        // Better error recovery
+        fragLoadingTimeOut: 20000,
+        manifestLoadingTimeOut: 10000,
+        levelLoadingTimeOut: 10000
       });
       
       hls.loadSource(hlsUrl);
       hls.attachMedia(videoElement);
       
       hls.on(Hls.Events.MANIFEST_PARSED, () => {
+        console.log('HLS manifest parsed successfully');
+        setIsLoading(false);
+        setVideoError(null);
         videoElement.play().catch(e => console.log('Auto-play prevented:', e));
       });
       
@@ -111,6 +133,8 @@ const VideoPlayer = React.memo(({ videoData, onSeekTo, onTimeUpdate }) => {
         console.error('HLS error data:', data);
         
         if (data.fatal) {
+          setVideoError(`Video streaming error: ${data.details || 'Unknown error'}`);
+          setIsLoading(false);
           switch(data.type) {
             case Hls.ErrorTypes.NETWORK_ERROR:
               console.error('Fatal network error encountered, trying to recover...');
@@ -126,21 +150,61 @@ const VideoPlayer = React.memo(({ videoData, onSeekTo, onTimeUpdate }) => {
               break;
           }
         } else {
+          // Handle non-fatal errors like buffer holes
           console.warn('Non-fatal HLS error:', data.details);
+          
+          if (data.details === 'bufferSeekOverHole') {
+            console.log('Buffer hole detected, attempting to recover...');
+            // Try to recover from buffer holes
+            try {
+              const currentTime = videoElement.currentTime;
+              if (currentTime > 0) {
+                // Seek to current time to trigger rebuffering
+                videoElement.currentTime = currentTime;
+              }
+            } catch (seekError) {
+              console.warn('Failed to recover from buffer hole:', seekError);
+            }
+          }
         }
+      });
+
+      // Add more event listeners for better debugging
+      hls.on(Hls.Events.FRAG_LOADED, (event, data) => {
+        console.log('Fragment loaded:', data.frag.url);
+      });
+
+      hls.on(Hls.Events.FRAG_PARSED, (event, data) => {
+        console.log('Fragment parsed successfully');
+      });
+
+      hls.on(Hls.Events.BUFFER_APPENDED, (event, data) => {
+        console.log('Buffer appended, duration:', data.details);
+      });
+
+      hls.on(Hls.Events.BUFFER_EOS, () => {
+        console.log('Buffer end of stream reached');
       });
       
       return hls;
     } else if (videoElement.canPlayType('application/vnd.apple.mpegurl')) {
+      // Native HLS support (Safari)
       videoElement.addEventListener('loadedmetadata', () => {
+        console.log('Native HLS video loaded');
+        setIsLoading(false);
+        setVideoError(null);
         videoElement.play().catch(e => console.log('Auto-play prevented:', e));
       });
       videoElement.addEventListener('error', (e) => {
         console.error('Native HLS error:', e);
+        setVideoError('Video playback error occurred');
+        setIsLoading(false);
       });
       return null;
     } else {
       console.error('HLS is not supported in this browser');
+      setVideoError('HLS video streaming is not supported in this browser');
+      setIsLoading(false);
       return null;
     }
   };
@@ -148,10 +212,35 @@ const VideoPlayer = React.memo(({ videoData, onSeekTo, onTimeUpdate }) => {
   // Load HLS video when videoData changes
   useEffect(() => {
     if (videoData && videoData.hlsUrl && videoRef.current && !videoData.blobUrl) {
-      const hlsInstance = loadHlsVideo(videoRef.current, videoData.hlsUrl);
+      let hlsInstance = null;
+      let retryCount = 0;
+      const maxRetries = 3;
+
+      const loadVideo = () => {
+        console.log(`Attempting to load HLS video (attempt ${retryCount + 1}/${maxRetries})`);
+        hlsInstance = loadHlsVideo(videoRef.current, videoData.hlsUrl);
+        
+        if (hlsInstance) {
+          hlsInstance.on(Hls.Events.ERROR, (event, data) => {
+            if (data.fatal && retryCount < maxRetries) {
+              console.log(`Fatal HLS error, retrying... (${retryCount + 1}/${maxRetries})`);
+              retryCount++;
+              setTimeout(() => {
+                if (hlsInstance) {
+                  hlsInstance.destroy();
+                }
+                loadVideo();
+              }, 2000); // Wait 2 seconds before retry
+            }
+          });
+        }
+      };
+
+      loadVideo();
       
       return () => {
         if (hlsInstance) {
+          console.log('Cleaning up HLS instance');
           hlsInstance.destroy();
         }
       };
@@ -161,18 +250,67 @@ const VideoPlayer = React.memo(({ videoData, onSeekTo, onTimeUpdate }) => {
   return (
     <div className="relative bg-black rounded-lg overflow-hidden shadow-2xl">
       {videoData && (videoData.blobUrl || videoData.hlsUrl) ? (
-        <video
-          ref={videoRef}
-          src={videoData.blobUrl || undefined}
-          className="w-full h-auto"
-          onTimeUpdate={handleTimeUpdate}
-          onLoadedMetadata={handleLoadedMetadata}
-          onPlay={() => setIsPlaying(true)}
-          onPause={() => setIsPlaying(false)}
-          preload="metadata"
-        >
-          Your browser does not support the video tag.
-        </video>
+        <>
+          {isLoading && (
+            <div className="absolute inset-0 bg-black bg-opacity-75 flex items-center justify-center z-10">
+              <div className="text-center text-white">
+                <div className="w-12 h-12 border-4 border-blue-500 border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
+                <p className="text-lg font-semibold">Loading video stream...</p>
+                <p className="text-sm text-gray-300 mt-2">Please wait while we connect to the video server</p>
+              </div>
+            </div>
+          )}
+          
+          {videoError && (
+            <div className="absolute inset-0 bg-black bg-opacity-90 flex items-center justify-center z-10">
+              <div className="text-center text-white max-w-md mx-auto p-6">
+                <div className="w-16 h-16 bg-red-500 rounded-full mx-auto mb-4 flex items-center justify-center">
+                  <svg className="w-8 h-8 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L3.732 16.5c-.77.833.192 2.5 1.732 2.5z" />
+                  </svg>
+                </div>
+                <h3 className="text-lg font-semibold mb-2">Video Streaming Error</h3>
+                <p className="text-gray-300 text-sm mb-4">{videoError}</p>
+                <div className="space-y-2 text-xs text-gray-400">
+                  <p>• Check your internet connection</p>
+                  <p>• Try refreshing the page</p>
+                  <p>• Contact support if the issue persists</p>
+                </div>
+                <button
+                  onClick={() => {
+                    setVideoError(null);
+                    setIsLoading(true);
+                    // Trigger video reload
+                    if (videoRef.current) {
+                      videoRef.current.load();
+                    }
+                  }}
+                  className="mt-4 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+                >
+                  Retry Video
+                </button>
+              </div>
+            </div>
+          )}
+          
+          <video
+            ref={videoRef}
+            src={videoData.blobUrl || undefined}
+            className="w-full h-auto"
+            onTimeUpdate={handleTimeUpdate}
+            onLoadedMetadata={handleLoadedMetadata}
+            onPlay={() => setIsPlaying(true)}
+            onPause={() => setIsPlaying(false)}
+            onError={(e) => {
+              console.error('Video element error:', e);
+              setVideoError('Video playback failed');
+              setIsLoading(false);
+            }}
+            preload="metadata"
+          >
+            Your browser does not support the video tag.
+          </video>
+        </>
       ) : (
         <div className="w-full h-96 bg-gray-800 flex items-center justify-center">
           <div className="text-center text-white">
@@ -570,6 +708,76 @@ export default function VideoPage({ params }) {
         }
       }
 
+      const fetchExistingCourseMetadata = async () => {
+        try {
+          console.log('Checking for existing course metadata...');
+          const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/fetch_course_metadata`, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({ video_id: videoId })
+          });
+
+          if (response.ok) {
+            const result = await response.json();
+            console.log('Found existing course metadata:', result.data);
+            
+            // Set the existing course data
+            setGeneratedContent({
+              chapters: result.data.chapters || false,
+              summary: result.data.summary || '',
+              keyTakeaways: result.data.key_takeaways || false,
+              pacingRecommendations: result.data.pacing_recommendations || false,
+              quizQuestions: result.data.quiz_questions || false,
+            });
+            
+            // Set the title from existing metadata
+            setGeneratedTitle(result.data.title || null);
+            
+            // Fetch HLS video URL for existing course
+            try {
+              console.log('Fetching HLS video URL for existing course...');
+              const hlsResponse = await fetch('/api/fetch-hls-video', {
+                method: 'POST',
+                headers: {
+                  'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({ videoId })
+              });
+
+              if (hlsResponse.ok) {
+                const hlsResult = await hlsResponse.json();
+                console.log('HLS video URL fetched:', hlsResult.data.hlsUrl);
+                
+                // Update video data with HLS URL
+                setVideoData(prevData => ({
+                  ...prevData,
+                  hlsUrl: hlsResult.data.hlsUrl,
+                  name: hlsResult.data.title || prevData?.name,
+                  size: hlsResult.data.duration || prevData?.size
+                }));
+              } else {
+                console.warn('Failed to fetch HLS video URL for existing course');
+              }
+            } catch (hlsError) {
+              console.error('Error fetching HLS video URL:', hlsError);
+            }
+            
+            // Mark analysis as complete since we have existing data
+            setIsAnalyzing(false);
+            setAnalysisComplete(true);
+            setChaptersLoading(false);
+            
+            console.log('Using existing course metadata');
+          } else {
+            console.log('No existing course metadata found, will generate new content');
+          }
+        } catch (error) {
+          console.error('Error checking for existing course metadata:', error);
+        }
+      }
+
       const fetchCachedAnalysis = async () => {
         try {
           console.log('Fetching cached analysis...');
@@ -780,14 +988,35 @@ export default function VideoPage({ params }) {
         }
       }
 
-      // Start both fetches
-      fetchVideo();
-      fetchCachedAnalysis();
-      generateChapters();
-      analyzeLectureWithAI();
-      generateKeyTakeaways();
-      generatePacingRecommendations();
-      generateQuizQuestions();
+      // Main execution flow
+      const initializeCourse = async () => {
+        // First, fetch video data
+        await fetchVideo();
+        
+        // Then check for existing course metadata
+        const hasExistingData = await fetchExistingCourseMetadata();
+
+        console.log('hasExistingData', hasExistingData)
+        
+        if (hasExistingData) {
+          // If we have existing data, just fetch cached analysis for title/hashtags/topics
+          await fetchCachedAnalysis();
+        } else {
+          console.log('no existing data, generating new content')
+          // If no existing data, generate new content
+          setIsAnalyzing(true);
+          setAnalysisComplete(false);
+          await fetchCachedAnalysis();
+          await generateChapters();
+          await analyzeLectureWithAI();
+          await generateKeyTakeaways();
+          await generatePacingRecommendations();
+          await generateQuizQuestions();
+        }
+      };
+
+      // Start the initialization
+      initializeCourse();
 
       // Cleanup timeout on unmount
       return () => clearTimeout(loadingTimeout);
@@ -1010,19 +1239,19 @@ export default function VideoPage({ params }) {
 
       return (
         <div className="mb-8">
-          {!titleCompleted && (
+          {!titleCompleted && hasValidTitle && (
             <h2 className="text-2xl font-bold text-gray-900 mb-2">
               <Typewriter text={title} speed={30} className="inline-block" />
             </h2>
           )}
-          {!hashtagsCompleted && (
+          {!hashtagsCompleted && hasValidHashtags && (
             <div className="flex flex-wrap gap-2 mb-2 animate-fade-in">
               {hashtags.map((hashtag, idx) => (
                 <span key={idx} className="text-blue-700 bg-blue-100 px-3 py-1 rounded-full text-sm font-medium">#{hashtag}</span>
               ))}
             </div>
           )}
-          {!topicsCompleted && (
+          {!topicsCompleted && hasValidTopics && (
             <div className="flex flex-wrap gap-2 animate-fade-in">
               {topics.map((topic, idx) => (
                 <span key={idx} className="bg-gray-200 text-gray-800 px-3 py-1 rounded-full text-sm font-medium">{topic}</span>
@@ -1036,27 +1265,29 @@ export default function VideoPage({ params }) {
     const handlePublish = async () => {
       setPublishing(true);
       try {
-        // Placeholder API call - replace with actual endpoint
-        const response = await fetch('/api/publish-course', {
+        const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/publish_course`, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
           },
           body: JSON.stringify({
-            videoId: params.videoId,
+            video_id: videoId,
+            summary: generatedContent.summary || '',
             title: generatedTitle || videoData?.name,
             chapters: generatedContent.chapters,
-            quizQuestions: generatedContent.quizQuestions,
-            keyTakeaways: generatedContent.keyTakeaways,
-            pacingRecommendations: generatedContent.pacingRecommendations
+            quiz_questions: generatedContent.quizQuestions,
+            key_takeaways: generatedContent.keyTakeaways,
+            pacing_recommendations: generatedContent.pacingRecommendations
           }),
         });
 
         if (response.ok) {
           const result = await response.json();
           console.log('Course published successfully:', result);
-          // You can add a success notification here
+          // Show success notification
           alert('Course published successfully!');
+          // Redirect back to dashboard
+          router.push('/dashboard');
         } else {
           throw new Error('Failed to publish course');
         }
@@ -1287,7 +1518,7 @@ export default function VideoPage({ params }) {
                   )}
 
                   {/* Key Takeaways */}
-                  {generatedContent.keyTakeaways ? (
+                  {generatedContent.keyTakeaways && Array.isArray(generatedContent.keyTakeaways) && generatedContent.keyTakeaways.length > 0 ? (
                     <div className="bg-white rounded-lg border border-gray-200 p-6">
                       <h3 className="text-lg font-semibold text-gray-800 mb-1 flex items-center gap-2">
                         <svg className="w-5 h-5 text-purple-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -1297,8 +1528,8 @@ export default function VideoPage({ params }) {
                       </h3>
                       <p className="text-sm text-gray-500 mb-4">Essential concepts and insights to remember from this lecture</p>
                       <div className="space-y-3">
-                        {generatedContent.keyTakeaways.map((keyTakeaway) => (
-                          <div className="flex items-start gap-3" key={keyTakeaway}> 
+                        {generatedContent.keyTakeaways.map((keyTakeaway, index) => (
+                          <div className="flex items-start gap-3" key={index}> 
                             <div className="w-2 h-2 bg-purple-500 rounded-full mt-2 flex-shrink-0"></div>
                             <p className="text-gray-700">{keyTakeaway}</p>
                           </div>
@@ -1318,7 +1549,7 @@ export default function VideoPage({ params }) {
                   )}
 
                   {/* Pacing Recommendations */}
-                  {generatedContent.pacingRecommendations ? (
+                  {generatedContent.pacingRecommendations && Array.isArray(generatedContent.pacingRecommendations) && generatedContent.pacingRecommendations.length > 0 ? (
                     <div className="bg-white rounded-lg border border-gray-200 p-6">
                       <h3 className="text-lg font-semibold text-gray-800 mb-1 flex items-center gap-2">
                         <svg className="w-5 h-5 text-orange-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -1328,8 +1559,8 @@ export default function VideoPage({ params }) {
                       </h3>
                       <p className="text-sm text-gray-500 mb-4">Suggested study schedule and time allocation for optimal learning</p>
                       <div className="space-y-3">
-                        {generatedContent.pacingRecommendations.map((pacingRecommendation) => (
-                          <div className="flex flex-col p-4 bg-orange-50 rounded-lg space-y-2" key={pacingRecommendation.start_time}>
+                        {generatedContent.pacingRecommendations.map((pacingRecommendation, index) => (
+                          <div className="flex flex-col p-4 bg-orange-50 rounded-lg space-y-2" key={index}>
                             <div className="flex items-center justify-between">
                               <div className="flex items-center space-x-2">
                                 <svg className="w-4 h-4 text-orange-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">

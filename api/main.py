@@ -355,6 +355,128 @@ def generate_quiz_questions():
             'status': 'error',
             'message': str(e)
         }), 500
+    
+@app.route('/publish_course', methods=['POST'])
+@cross_origin()
+def publish_course():
+
+    """
+    Publishes a course to the database.
+    """
+
+    try:
+
+        data = request.json
+
+        if not data:
+            return jsonify({
+                'status': 'error',
+                'message': 'No JSON data received'
+            }), 400
+
+        db_handler = DBHandler()
+
+        video_id = data.get('video_id')
+        title = data.get('title')
+        chapters = data.get('chapters')
+        quiz_questions = data.get('quiz_questions')
+        key_takeaways = data.get('key_takeaways')
+        pacing_recommendations = data.get('pacing_recommendations')
+        summary = data.get('summary')
+
+        if not video_id or not title or not chapters or not quiz_questions or not key_takeaways or not pacing_recommendations or not summary:
+            return jsonify({
+                'status': 'error',
+                'message': 'Missing required fields'
+            }), 400
+
+        result = db_handler.upload_course_metadata(video_id=video_id, title=title, chapters=chapters, quiz_questions=quiz_questions, key_takeaways=key_takeaways, pacing_recommendations=pacing_recommendations, summary=summary)
+
+        return jsonify({
+            'status': 'success',
+            'message': 'Course published successfully'
+        }), 200
+
+    except Exception as e:
+
+        print(f"Error in publish_course endpoint: {e}")
+
+        return jsonify({
+            'status': 'error',
+            'message': str(e)
+        }), 500
+
+@app.route('/get_published_courses', methods=['GET'])
+@cross_origin()
+def get_published_courses():
+
+    """
+    Retrieves all published courses from the database.
+    """
+
+    try:
+
+        db_handler = DBHandler()
+        courses = db_handler.get_published_courses()
+
+        return jsonify({
+            'status': 'success',
+            'message': 'Published courses retrieved successfully',
+            'data': courses
+        }), 200
+
+    except Exception as e:
+
+        print(f"Error in get_published_courses endpoint: {e}")
+
+        return jsonify({
+            'status': 'error',
+            'message': str(e)
+        }), 500
+    
+@app.route('/fetch_course_metadata', methods=['POST'])
+@cross_origin()
+def fetch_course_metadata():
+
+    """
+    Fetches course metadata for a given video ID from the database.
+    """
+
+    try:
+
+        data = request.json
+        video_id = data.get('video_id')
+
+        if not video_id:
+            return jsonify({
+                'status': 'error',
+                'message': 'video_id is required'
+            }), 400
+        
+        db_handler = DBHandler()
+        course_metadata = db_handler.fetch_course_metadata(video_id=video_id)
+
+        return jsonify({
+            'status': 'success',
+            'message': 'Course metadata fetched successfully',
+            'data': course_metadata
+        }), 200
+    
+    except ValueError as e:
+
+        return jsonify({
+            'status': 'error',
+            'message': str(e)
+        }), 404
+    
+    except Exception as e:
+
+        print(f"Error in fetch_course_metadata endpoint: {e}")
+
+        return jsonify({
+            'status': 'error',
+            'message': str(e)
+        }), 500
 
 if __name__ == "__main__":
 
