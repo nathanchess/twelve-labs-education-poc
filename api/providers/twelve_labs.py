@@ -241,7 +241,7 @@ class TwelveLabsHandler:
             
             raise Exception(f"Error generating pacing recommendations: {str(e)}")
         
-    def generate_quiz_questions(self, session: dict):
+    def generate_quiz_questions(self, chapters: list):
 
         """
         
@@ -249,7 +249,15 @@ class TwelveLabsHandler:
         
         """
 
-        quiz_questions_prompt = prompts.quiz_questions_prompt.format("")
+        print(f"Chapters: {chapters}")
+
+        # Validate that chapters is a list and not empty
+        if not chapters or not isinstance(chapters, list) or len(chapters) == 0:
+            raise Exception("Chapters must be a non-empty list")
+
+        chapters_string = "\n".join([f"{chapter['title']}: {chapter['summary']}" for chapter in chapters])
+
+        quiz_questions_prompt = prompts.quiz_questions_prompt.format(chapters_string)
 
         try:
 

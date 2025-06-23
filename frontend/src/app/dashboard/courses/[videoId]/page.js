@@ -5,553 +5,19 @@ import { useRouter } from 'next/navigation';
 import { useState, useEffect, use, useRef, useCallback } from 'react';
 import Hls from 'hls.js';
 import React from 'react';
-import { useFormState } from 'react-dom';
-
-// Separate Video Player Component - completely isolated
-const VideoPlayer = React.memo(({ videoData, onSeekTo, onTimeUpdate }) => {
-  const [currentTime, setCurrentTime] = useState(0);
-  const [duration, setDuration] = useState(0);
-  const [isPlaying, setIsPlaying] = useState(false);
-  const [videoError, setVideoError] = useState(null);
-  const [isLoading, setIsLoading] = useState(true);
-  const videoRef = useRef(null);
-
-  const handleTimeUpdate = () => {
-    if (videoRef.current) {
-      const newTime = videoRef.current.currentTime;
-      setCurrentTime(newTime);
-      // Notify parent of time update
-      if (onTimeUpdate) {
-        onTimeUpdate(newTime, duration);
-      }
-    }
-  };
-
-  const handleLoadedMetadata = () => {
-    if (videoRef.current) {
-      const newDuration = videoRef.current.duration;
-      setDuration(newDuration);
-      // Notify parent of duration update
-      if (onTimeUpdate) {
-        onTimeUpdate(currentTime, newDuration);
-      }
-    }
-  };
-
-  const togglePlay = () => {
-    if (videoRef.current) {
-      if (isPlaying) {
-        videoRef.current.pause();
-      } else {
-        videoRef.current.play();
-      }
-      setIsPlaying(!isPlaying);
-    }
-  };
-
-  const seekTo = (time) => {
-    console.log('seekTo called with time:', time, 'videoRef.current:', !!videoRef.current);
-    if (videoRef.current) {
-      // Ensure time is a valid number and handle 0 seconds properly
-      const seekTime = Math.max(0, Number(time) || 0);
-      console.log('Setting currentTime to:', seekTime);
-      
-      try {
-        videoRef.current.currentTime = seekTime;
-        setCurrentTime(seekTime);
-        console.log('Successfully set currentTime to:', seekTime);
-      } catch (error) {
-        console.error('Error setting currentTime:', error);
-        // Fallback: try to seek using a small delay
-        setTimeout(() => {
-          try {
-            videoRef.current.currentTime = seekTime;
-            setCurrentTime(seekTime);
-            console.log('Successfully set currentTime with delay to:', seekTime);
-          } catch (delayError) {
-            console.error('Error setting currentTime with delay:', delayError);
-          }
-        }, 100);
-      }
-    } else {
-      console.warn('videoRef.current is null, cannot seek');
-    }
-  };
-
-  // Expose seekTo function to parent component (only once)
-  useEffect(() => {
-    if (onSeekTo) {
-      onSeekTo(seekTo);
-    }
-  }, [onSeekTo]);
-
-  const formatTime = (time) => {
-    const minutes = Math.floor(time / 60);
-    const seconds = Math.floor(time % 60);
-    return `${minutes}:${seconds.toString().padStart(2, '0')}`;
-  };
-
-  // Function to load HLS video
-  const loadHlsVideo = (videoElement, hlsUrl) => {
-    if (Hls.isSupported()) {
-      const hls = new Hls({
-        debug: false,
-        enableWorker: true,
-        lowLatencyMode: false,
-        backBufferLength: 90,
-        // Add configuration to handle buffer holes
-        maxBufferLength: 30,
-        maxMaxBufferLength: 600,
-        maxBufferSize: 60 * 1000 * 1000, // 60MB
-        maxBufferHole: 0.5,
-        highBufferWatchdogPeriod: 2,
-        nudgeOffset: 0.2,
-        nudgeMaxRetry: 5,
-        maxFragLookUpTolerance: 0.25,
-        liveSyncDurationCount: 3,
-        liveMaxLatencyDurationCount: 10,
-        // Enable gap handling
-        enableSoftwareAES: true,
-        // Better error recovery
-        fragLoadingTimeOut: 20000,
-        manifestLoadingTimeOut: 10000,
-        levelLoadingTimeOut: 10000
-      });
-      
-      hls.loadSource(hlsUrl);
-      hls.attachMedia(videoElement);
-      
-      hls.on(Hls.Events.MANIFEST_PARSED, () => {
-        console.log('HLS manifest parsed successfully');
-        setIsLoading(false);
-        setVideoError(null);
-        videoElement.play().catch(e => console.log('Auto-play prevented:', e));
-      });
-      
-      hls.on(Hls.Events.ERROR, (event, data) => {
-        console.error('HLS error event:', event);
-        console.error('HLS error data:', data);
-        
-        if (data.fatal) {
-          setVideoError(`Video streaming error: ${data.details || 'Unknown error'}`);
-          setIsLoading(false);
-          switch(data.type) {
-            case Hls.ErrorTypes.NETWORK_ERROR:
-              console.error('Fatal network error encountered, trying to recover...');
-              hls.startLoad();
-              break;
-            case Hls.ErrorTypes.MEDIA_ERROR:
-              console.error('Fatal media error encountered, trying to recover...');
-              hls.recoverMediaError();
-              break;
-            default:
-              console.error('Fatal error, destroying HLS instance');
-              hls.destroy();
-              break;
-          }
-        } else {
-          // Handle non-fatal errors like buffer holes
-          console.warn('Non-fatal HLS error:', data.details);
-          
-          if (data.details === 'bufferSeekOverHole') {
-            console.log('Buffer hole detected, attempting to recover...');
-            // Try to recover from buffer holes
-            try {
-              const currentTime = videoElement.currentTime;
-              if (currentTime > 0) {
-                // Seek to current time to trigger rebuffering
-                videoElement.currentTime = currentTime;
-              }
-            } catch (seekError) {
-              console.warn('Failed to recover from buffer hole:', seekError);
-            }
-          }
-        }
-      });
-
-      // Add more event listeners for better debugging
-      hls.on(Hls.Events.FRAG_LOADED, (event, data) => {
-        console.log('Fragment loaded:', data.frag.url);
-      });
-
-      hls.on(Hls.Events.FRAG_PARSED, (event, data) => {
-        console.log('Fragment parsed successfully');
-      });
-
-      hls.on(Hls.Events.BUFFER_APPENDED, (event, data) => {
-        console.log('Buffer appended, duration:', data.details);
-      });
-
-      hls.on(Hls.Events.BUFFER_EOS, () => {
-        console.log('Buffer end of stream reached');
-      });
-      
-      return hls;
-    } else if (videoElement.canPlayType('application/vnd.apple.mpegurl')) {
-      // Native HLS support (Safari)
-      videoElement.addEventListener('loadedmetadata', () => {
-        console.log('Native HLS video loaded');
-        setIsLoading(false);
-        setVideoError(null);
-        videoElement.play().catch(e => console.log('Auto-play prevented:', e));
-      });
-      videoElement.addEventListener('error', (e) => {
-        console.error('Native HLS error:', e);
-        setVideoError('Video playback error occurred');
-        setIsLoading(false);
-      });
-      return null;
-    } else {
-      console.error('HLS is not supported in this browser');
-      setVideoError('HLS video streaming is not supported in this browser');
-      setIsLoading(false);
-      return null;
-    }
-  };
-
-  // Load HLS video when videoData changes
-  useEffect(() => {
-    if (videoData && videoData.hlsUrl && videoRef.current && !videoData.blobUrl) {
-      let hlsInstance = null;
-      let retryCount = 0;
-      const maxRetries = 3;
-
-      const loadVideo = () => {
-        console.log(`Attempting to load HLS video (attempt ${retryCount + 1}/${maxRetries})`);
-        hlsInstance = loadHlsVideo(videoRef.current, videoData.hlsUrl);
-        
-        if (hlsInstance) {
-          hlsInstance.on(Hls.Events.ERROR, (event, data) => {
-            if (data.fatal && retryCount < maxRetries) {
-              console.log(`Fatal HLS error, retrying... (${retryCount + 1}/${maxRetries})`);
-              retryCount++;
-              setTimeout(() => {
-                if (hlsInstance) {
-                  hlsInstance.destroy();
-                }
-                loadVideo();
-              }, 2000); // Wait 2 seconds before retry
-            }
-          });
-        }
-      };
-
-      loadVideo();
-      
-      return () => {
-        if (hlsInstance) {
-          console.log('Cleaning up HLS instance');
-          hlsInstance.destroy();
-        }
-      };
-    }
-  }, [videoData]);
-
-  return (
-    <div className="relative bg-black rounded-lg overflow-hidden shadow-2xl">
-      {videoData && (videoData.blobUrl || videoData.hlsUrl) ? (
-        <>
-          {isLoading && (
-            <div className="absolute inset-0 bg-black bg-opacity-75 flex items-center justify-center z-10">
-              <div className="text-center text-white">
-                <div className="w-12 h-12 border-4 border-blue-500 border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
-                <p className="text-lg font-semibold">Loading video stream...</p>
-                <p className="text-sm text-gray-300 mt-2">Please wait while we connect to the video server</p>
-              </div>
-            </div>
-          )}
-          
-          {videoError && (
-            <div className="absolute inset-0 bg-black bg-opacity-90 flex items-center justify-center z-10">
-              <div className="text-center text-white max-w-md mx-auto p-6">
-                <div className="w-16 h-16 bg-red-500 rounded-full mx-auto mb-4 flex items-center justify-center">
-                  <svg className="w-8 h-8 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L3.732 16.5c-.77.833.192 2.5 1.732 2.5z" />
-                  </svg>
-                </div>
-                <h3 className="text-lg font-semibold mb-2">Video Streaming Error</h3>
-                <p className="text-gray-300 text-sm mb-4">{videoError}</p>
-                <div className="space-y-2 text-xs text-gray-400">
-                  <p>• Check your internet connection</p>
-                  <p>• Try refreshing the page</p>
-                  <p>• Contact support if the issue persists</p>
-                </div>
-                <button
-                  onClick={() => {
-                    setVideoError(null);
-                    setIsLoading(true);
-                    // Trigger video reload
-                    if (videoRef.current) {
-                      videoRef.current.load();
-                    }
-                  }}
-                  className="mt-4 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
-                >
-                  Retry Video
-                </button>
-              </div>
-            </div>
-          )}
-          
-          <video
-            ref={videoRef}
-            src={videoData.blobUrl || undefined}
-            className="w-full h-auto"
-            onTimeUpdate={handleTimeUpdate}
-            onLoadedMetadata={handleLoadedMetadata}
-            onPlay={() => setIsPlaying(true)}
-            onPause={() => setIsPlaying(false)}
-            onError={(e) => {
-              console.error('Video element error:', e);
-              setVideoError('Video playback failed');
-              setIsLoading(false);
-            }}
-            preload="metadata"
-          >
-            Your browser does not support the video tag.
-          </video>
-        </>
-      ) : (
-        <div className="w-full h-96 bg-gray-800 flex items-center justify-center">
-          <div className="text-center text-white">
-            <div className="w-24 h-24 bg-gray-600 rounded-full mx-auto mb-4 flex items-center justify-center">
-              <svg className="w-12 h-12 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z" />
-              </svg>
-            </div>
-            <h3 className="text-lg font-semibold mb-2">Video Not Available</h3>
-            <p className="text-gray-400 text-sm">
-              No video source available for playback.
-            </p>
-            {videoData?.hlsUrl && (
-              <div className="mt-4">
-                <p className="text-gray-400 text-sm mb-2">
-                  If the video doesn't play, try opening it directly:
-                </p>
-                <a 
-                  href={videoData.hlsUrl} 
-                  target="_blank" 
-                  rel="noopener noreferrer"
-                  className="inline-flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
-                >
-                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
-                  </svg>
-                  Open Video Stream
-                </a>
-              </div>
-            )}
-          </div>
-        </div>
-      )}
-
-      {/* Custom Video Controls - Show if video is available */}
-      {videoData && (videoData.blobUrl || videoData.hlsUrl) && (
-        <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/80 to-transparent p-4">
-          {/* Progress Bar */}
-          <div className="mb-3">
-            <div 
-              className="w-full bg-white/30 rounded-full h-1 cursor-pointer"
-              onClick={(e) => {
-                const rect = e.currentTarget.getBoundingClientRect();
-                const clickX = e.clientX - rect.left;
-                const percentage = clickX / rect.width;
-                seekTo(percentage * duration);
-              }}
-            >
-              <div 
-                className="bg-blue-500 h-1 rounded-full transition-all duration-100"
-                style={{ width: `${(currentTime / duration) * 100}%` }}
-              ></div>
-            </div>
-          </div>
-
-          {/* Control Buttons */}
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-4">
-              <button
-                onClick={togglePlay}
-                className="text-white hover:text-blue-400 transition-colors duration-200"
-              >
-                {isPlaying ? (
-                  <svg className="w-8 h-8" fill="currentColor" viewBox="0 0 24 24">
-                    <path d="M6 4h4v16H6V4zm8 0h4v16h-4V4z"/>
-                  </svg>
-                ) : (
-                  <svg className="w-8 h-8" fill="currentColor" viewBox="0 0 24 24">
-                    <path d="M8 5v14l11-7z"/>
-                  </svg>
-                )}
-              </button>
-              
-              <div className="text-white text-sm">
-                {formatTime(currentTime)} / {formatTime(duration)}
-              </div>
-            </div>
-
-            <div className="flex items-center gap-2">
-              <button className="text-white hover:text-blue-400 transition-colors duration-200">
-                <svg className="w-6 h-6" fill="currentColor" viewBox="0 0 24 24">
-                  <path d="M3 9v6h4l5 5V4L7 9H3zm13.5 3c0-1.77-1.02-3.29-2.5-4.03v8.05c1.48-.73 2.5-2.25 2.5-4.02zM14 3.23v2.06c2.89.86 5 3.54 5 6.71s-2.11 5.85-5 6.71v2.06c4.01-.91 7-4.49 7-8.77s-2.99-7.86-7-8.77z"/>
-                </svg>
-              </button>
-              
-              <button className="text-white hover:text-blue-400 transition-colors duration-200">
-                <svg className="w-6 h-6" fill="currentColor" viewBox="0 0 24 24">
-                  <path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/>
-                </svg>
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-    </div>
-  );
-});
-
-// Separate Chapters Component - also isolated
-const ChaptersSection = React.memo(({ videoData, chapters, loading, seekTo, currentTime, duration }) => {
-  const formatTime = (time) => {
-    const minutes = Math.floor(time / 60);
-    const seconds = Math.floor(time % 60);
-    return `${minutes}:${seconds.toString().padStart(2, '0')}`;
-  };
-
-  // Use API chapters if available, otherwise fall back to generated chapters
-  const getChapters = () => {
-    if (chapters && chapters.length > 0) {
-      // Transform API chapters to match the expected format
-      return chapters.map(chapter => ({
-        id: chapter.chapter_id,
-        title: chapter.title,
-        summary: chapter.summary,
-        startTime: chapter.start_time,
-        endTime: chapter.end_time,
-        duration: chapter.end_time - chapter.start_time
-      }));
-    }
-    
-    // Fallback to generated chapters if no API chapters
-    if (!duration || duration <= 0) return [];
-    
-    const generatedChapters = [];
-    const chapterCount = Math.max(3, Math.floor(duration / 300)); // 1 chapter per 5 minutes, minimum 3
-    
-    for (let i = 0; i < chapterCount; i++) {
-      const startTime = (duration / chapterCount) * i;
-      const endTime = (duration / chapterCount) * (i + 1);
-      generatedChapters.push({
-        id: i + 1,
-        title: `Chapter ${i + 1}`,
-        summary: '',
-        startTime,
-        endTime,
-        duration: endTime - startTime
-      });
-    }
-    
-    return generatedChapters;
-  };
-
-  const getCurrentChapter = () => {
-    const allChapters = getChapters();
-    if (!allChapters || allChapters.length === 0) {
-      return { title: 'Loading...', startTime: 0, endTime: 0, duration: 0, summary: '' };
-    }
-    return allChapters.find(chapter => 
-      currentTime >= chapter.startTime && currentTime < chapter.endTime
-    ) || allChapters[0];
-  };
-
-  const allChapters = getChapters();
-  const currentChapter = getCurrentChapter();
-
-  const handleChapterClick = (startTime) => {
-    if (seekTo) {
-      seekTo(startTime);
-    }
-  };
-
-  return (
-    <div className="bg-white rounded-xl p-6 border border-gray-200">
-      <h3 className="text-lg font-semibold text-gray-800 mb-4 flex items-center gap-2">
-        <svg className="w-5 h-5 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-        </svg>
-        Chapters
-      </h3>
-      <p className="text-sm text-gray-500 mb-4">Navigate through lecture sections and track your progress</p>
-      
-      {/* Current Chapter Indicator */}
-      <div className="bg-blue-50 rounded-lg p-4 mb-4 border border-blue-200">
-        <div className="flex items-center gap-3">
-          <div className="w-3 h-3 bg-blue-500 rounded-full animate-pulse"></div>
-          <div>
-            <p className="text-blue-700">{currentChapter?.title || 'Loading...'}</p>
-            <p className="text-sm text-blue-600 mt-1">
-              {formatTime(currentTime)} / {formatTime(duration)}
-            </p>
-            {currentChapter?.summary && (
-              <p className="text-xs text-blue-600 mt-2 italic">
-                {currentChapter.summary}
-              </p>
-            )}
-          </div>
-        </div>
-      </div>
-
-      {/* Chapter List */}
-      <div className="space-y-2">
-        {loading ? (
-          <div className="space-y-3">
-            {[1, 2, 3].map((i) => (
-              <div key={i} className="p-3 rounded-lg bg-gray-50 animate-pulse">
-                <div className="h-4 bg-gray-200 rounded mb-2"></div>
-                <div className="h-3 bg-gray-200 rounded w-2/3"></div>
-              </div>
-            ))}
-          </div>
-        ) : allChapters && allChapters.length > 0 ? (
-          allChapters.map((chapter) => (
-            <div
-              key={chapter.id}
-              className={`p-3 rounded-lg cursor-pointer transition-all duration-200 ${
-                currentTime >= chapter.startTime && currentTime < chapter.endTime
-                  ? 'bg-blue-100 border border-blue-300'
-                  : 'bg-gray-50 hover:bg-gray-100 border border-transparent'
-              }`}
-              onClick={() => handleChapterClick(chapter.startTime)}
-            >
-              <div className="flex items-start justify-between">
-                <div className="flex-1">
-                  <h4 className="font-medium text-gray-800">{chapter.title}</h4>
-                  <p className="text-sm text-gray-600">
-                    {formatTime(chapter.startTime)} - {formatTime(chapter.endTime)}
-                  </p>
-                  {chapter.summary && (
-                    <p className="text-xs text-gray-500 mt-1 italic line-clamp-2">
-                      {chapter.summary}
-                    </p>
-                  )}
-                </div>
-                <div className="text-xs text-gray-500 ml-2 flex-shrink-0">
-                  {formatTime(chapter.duration)}
-                </div>
-              </div>
-            </div>
-          ))
-        ) : (
-          <div className="text-center py-4 text-gray-500 text-sm">
-            <p>Chapters will appear here once video loads</p>
-          </div>
-        )}
-      </div>
-    </div>
-  );
-});
+import VideoPlayer from '../../../components/VideoPlayer';
+import ChaptersSection from '../../../components/ChaptersSection';
 
 export default function VideoPage({ params }) {
+
   const { videoId } = use(params);
+
+  const options = {
+    method: 'GET',
+    headers: {
+      'x-api-key': process.env.NEXT_PUBLIC_TWELVE_LABS_API_KEY
+    }
+  }
   
   try {
 
@@ -618,408 +84,379 @@ export default function VideoPage({ params }) {
       }
     }, [videoSeekTo]);
 
-    useEffect(() => {
-      // For now, we'll get video data from localStorage
-      // In a real app, you'd fetch this from your API
-      
-      console.log('Video ID:', videoId);
-      console.log('Initial loading state:', loading);
-      console.log('Environment variables check:');
-      console.log('API URL:', process.env.NEXT_PUBLIC_API_URL);
-      console.log('TwelveLabs API Key exists:', !!process.env.NEXT_PUBLIC_TWELVE_LABS_API_KEY);
-      console.log('TwelveLabs Index ID:', process.env.NEXT_PUBLIC_TWELVE_LABS_INDEX_ID);
-
-      // Add a timeout to prevent infinite loading
-      const loadingTimeout = setTimeout(() => {
-        console.log('Loading timeout reached, setting fallback data');
-        if (loading) {
-          const fallbackData = {
-            name: 'Video Loading Timeout',
-            size: 0,
-            date: new Date().toISOString(),
-            blob: null,
-            blobUrl: null,
-            twelveLabsVideoId: videoId,
-            uploadDate: new Date().toISOString()
-          };
-          setVideoData(fallbackData);
-          setLoading(false);
+    const fetchVideo = async () => {
+      //console.log('Fetching video data from TwelveLabs...');
+      const retrievalURL = `https://api.twelvelabs.io/v1.3/indexes/${process.env.NEXT_PUBLIC_TWELVE_LABS_INDEX_ID}/videos/${videoId}?transcription=true`
+      try {
+        const retrieveVideoResponse = await fetch(retrievalURL, options);
+        //console.log('Response status:', retrieveVideoResponse.status);
+        
+        if (!retrieveVideoResponse.ok) {
+          throw new Error(`HTTP ${retrieveVideoResponse.status}: ${retrieveVideoResponse.statusText}`);
         }
-      }, 10000); // 10 second timeout
+        
+        const result = await retrieveVideoResponse.json();
+        //console.log('Retrieved video data:', result);
 
-      // If not in localStorage, fetch from TwelveLabs API
-      const options = {
-        method: 'GET',
-        headers: {
-          'x-api-key': process.env.NEXT_PUBLIC_TWELVE_LABS_API_KEY
+        // Create a fallback video data structure
+        const videoData = {
+          name: result.system_metadata?.filename || 'Unknown Video',
+          size: result.system_metadata?.duration || 0,
+          date: result.created_at || new Date().toISOString(),
+          blob: null,
+          blobUrl: null, // We'll handle this differently
+          twelveLabsVideoId: videoId,
+          uploadDate: result.created_at || new Date().toISOString(),
+          // Store the HLS URL separately for potential future use
+          hlsUrl: result.hls?.video_url || null
         }
+
+        console.log('Setting video data:', videoData);
+        setVideoData(videoData);
+        console.log('Setting loading to false');
+        setLoading(false);
+        console.log('State updates completed');
+        //clearTimeout(loadingTimeout);
+      } catch (error) {
+        console.error('Error fetching video data:', error);
+        // Set a fallback video data
+        const fallbackData = {
+          name: 'Video Not Found',
+          size: 0,
+          date: new Date().toISOString(),
+          blob: null,
+          blobUrl: null,
+          twelveLabsVideoId: videoId,
+          uploadDate: new Date().toISOString()
+        };
+        console.log('Setting fallback video data:', fallbackData);
+        setVideoData(fallbackData);
+        console.log('Setting loading to false (error case)');
+        setLoading(false);
+        //clearTimeout(loadingTimeout);
       }
+    }
 
-      const fetchVideo = async () => {
-        //console.log('Fetching video data from TwelveLabs...');
-        const retrievalURL = `https://api.twelvelabs.io/v1.3/indexes/${process.env.NEXT_PUBLIC_TWELVE_LABS_INDEX_ID}/videos/${videoId}?transcription=true`
-        try {
-          const retrieveVideoResponse = await fetch(retrievalURL, options);
-          //console.log('Response status:', retrieveVideoResponse.status);
-          
-          if (!retrieveVideoResponse.ok) {
-            throw new Error(`HTTP ${retrieveVideoResponse.status}: ${retrieveVideoResponse.statusText}`);
-          }
-          
-          const result = await retrieveVideoResponse.json();
-          //console.log('Retrieved video data:', result);
+    const fetchExistingCourseMetadata = async () => {
+      try {
+        const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/fetch_course_metadata`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({ video_id: videoId })
+        });
 
-          // Create a fallback video data structure
-          const videoData = {
-            name: result.system_metadata?.filename || 'Unknown Video',
-            size: result.system_metadata?.duration || 0,
-            date: result.created_at || new Date().toISOString(),
-            blob: null,
-            blobUrl: null, // We'll handle this differently
-            twelveLabsVideoId: videoId,
-            uploadDate: result.created_at || new Date().toISOString(),
-            // Store the HLS URL separately for potential future use
-            hlsUrl: result.hls?.video_url || null
+        if (response.ok) {
+          const result = await response.json();
+          console.log('Found existing course metadata:', result.data)
+          
+          const generatedContent = {
+            chapters: result.data.chapters || false,
+            summary: result.data.summary || '',
+            keyTakeaways: result.data.key_takeaways || false,
+            pacingRecommendations: result.data.pacing_recommendations || false,
+            quizQuestions: result.data.quiz_questions || false,
           }
 
-          console.log('Setting video data:', videoData);
-          setVideoData(videoData);
-          console.log('Setting loading to false');
-          setLoading(false);
-          console.log('State updates completed');
-          clearTimeout(loadingTimeout);
-        } catch (error) {
-          console.error('Error fetching video data:', error);
-          // Set a fallback video data
-          const fallbackData = {
-            name: 'Video Not Found',
-            size: 0,
-            date: new Date().toISOString(),
-            blob: null,
-            blobUrl: null,
-            twelveLabsVideoId: videoId,
-            uploadDate: new Date().toISOString()
-          };
-          console.log('Setting fallback video data:', fallbackData);
-          setVideoData(fallbackData);
-          console.log('Setting loading to false (error case)');
-          setLoading(false);
-          clearTimeout(loadingTimeout);
-        }
-      }
-
-      const fetchExistingCourseMetadata = async () => {
-        try {
-          console.log('Checking for existing course metadata...');
-          const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/fetch_course_metadata`, {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json'
-            },
-            body: JSON.stringify({ video_id: videoId })
-          });
-
-          if (response.ok) {
-            const result = await response.json();
-            console.log('Found existing course metadata:', result.data);
-            
-            // Set the existing course data
-            setGeneratedContent({
-              chapters: result.data.chapters || false,
-              summary: result.data.summary || '',
-              keyTakeaways: result.data.key_takeaways || false,
-              pacingRecommendations: result.data.pacing_recommendations || false,
-              quizQuestions: result.data.quiz_questions || false,
+          // Set the existing course data
+          setGeneratedContent(generatedContent);
+          
+          // Set the title from existing metadata
+          setGeneratedTitle(result.data.title || null);
+          
+          // Fetch HLS video URL for existing course
+          try {
+            console.log('Fetching HLS video URL for existing course...');
+            const hlsResponse = await fetch('/api/fetch-hls-video', {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+              },
+              body: JSON.stringify({ videoId })
             });
-            
-            // Set the title from existing metadata
-            setGeneratedTitle(result.data.title || null);
-            
-            // Fetch HLS video URL for existing course
-            try {
-              console.log('Fetching HLS video URL for existing course...');
-              const hlsResponse = await fetch('/api/fetch-hls-video', {
-                method: 'POST',
-                headers: {
-                  'Content-Type': 'application/json',
-                },
-                body: JSON.stringify({ videoId })
-              });
 
-              if (hlsResponse.ok) {
-                const hlsResult = await hlsResponse.json();
-                console.log('HLS video URL fetched:', hlsResult.data.hlsUrl);
-                
-                // Update video data with HLS URL
-                setVideoData(prevData => ({
-                  ...prevData,
-                  hlsUrl: hlsResult.data.hlsUrl,
-                  name: hlsResult.data.title || prevData?.name,
-                  size: hlsResult.data.duration || prevData?.size
-                }));
-              } else {
-                console.warn('Failed to fetch HLS video URL for existing course');
-              }
-            } catch (hlsError) {
-              console.error('Error fetching HLS video URL:', hlsError);
+            if (hlsResponse.ok) {
+              const hlsResult = await hlsResponse.json();
+              console.log('HLS video URL fetched:', hlsResult.data.hlsUrl);
+              
+              // Update video data with HLS URL
+              setVideoData(prevData => ({
+                ...prevData,
+                hlsUrl: hlsResult.data.hlsUrl,
+                name: hlsResult.data.title || prevData?.name,
+                size: hlsResult.data.duration || prevData?.size
+              }));
+            } else {
+              console.warn('Failed to fetch HLS video URL for existing course');
             }
-            
-            // Mark analysis as complete since we have existing data
-            setIsAnalyzing(false);
-            setAnalysisComplete(true);
-            setChaptersLoading(false);
-            
-            console.log('Using existing course metadata');
-          } else {
-            console.log('No existing course metadata found, will generate new content');
+          } catch (hlsError) {
+            console.error('Error fetching HLS video URL:', hlsError);
           }
-        } catch (error) {
-          console.error('Error checking for existing course metadata:', error);
-        }
-      }
-
-      const fetchCachedAnalysis = async () => {
-        try {
-          console.log('Fetching cached analysis...');
-          const cachedAnalysisResult = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/cached_analysis`, {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json'
-            },
-            body: JSON.stringify({twelve_labs_video_id: videoId})
-          });
-
-          console.log('Cached analysis response status:', cachedAnalysisResult.status);
           
-          if (!cachedAnalysisResult.ok) {
-            console.warn('Cached analysis failed, continuing without it');
-            return;
-          }
+          // Mark analysis as complete since we have existing data
+          setIsAnalyzing(false);
+          setAnalysisComplete(true);
+          setChaptersLoading(false);
 
-          const result = await cachedAnalysisResult.json();
-          console.log('Cached analysis result:', result);
+          return generatedContent;
+          
+        } else {
+          console.log('No existing course metadata found, will generate new content')
+          return {};
+        }
+      } catch (error) {
+        console.error('Error checking for existing course metadata:', error);
+        return {};
+      }
+    }
 
-          if (result && result.data && result.data.twelve_labs) {
-            const twelveLabsData = result.data.twelve_labs;
-            setGeneratedTitle(twelveLabsData.title || null);
-            setGeneratedHashtags(twelveLabsData.hashtags || null);
-            setGeneratedTopics(twelveLabsData.topics || null);
-          } else {
-            console.warn('Cached analysis data structure is not as expected:', result);
-            setGeneratedTitle(null);
-            setGeneratedHashtags(null);
-            setGeneratedTopics(null);
-          }
-        } catch (error) {
-          console.error('Error fetching cached analysis:', error);
+    const fetchCachedAnalysis = async () => {
+      try {
+        console.log('Fetching cached analysis...');
+        const cachedAnalysisResult = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/cached_analysis`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({twelve_labs_video_id: videoId})
+        });
+
+        console.log('Cached analysis response status:', cachedAnalysisResult.status);
+        
+        if (!cachedAnalysisResult.ok) {
+          console.warn('Cached analysis failed, continuing without it');
+          return;
+        }
+
+        const result = await cachedAnalysisResult.json();
+        console.log('Cached analysis result:', result);
+
+        if (result && result.data && result.data.twelve_labs) {
+          const twelveLabsData = result.data.twelve_labs;
+          setGeneratedTitle(twelveLabsData.title || null);
+          setGeneratedHashtags(twelveLabsData.hashtags || null);
+          setGeneratedTopics(twelveLabsData.topics || null);
+        } else {
+          console.warn('Cached analysis data structure is not as expected:', result);
           setGeneratedTitle(null);
           setGeneratedHashtags(null);
           setGeneratedTopics(null);
         }
+      } catch (error) {
+        console.error('Error fetching cached analysis:', error);
+        setGeneratedTitle(null);
+        setGeneratedHashtags(null);
+        setGeneratedTopics(null);
       }
+    }
 
-      const generateChapters = async () => {
-        try {
-          console.log('Generating chapters...');
-          setChaptersLoading(true);
-          const chaptersResult = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/generate_chapters`, {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json'
-            },
-            body: JSON.stringify({twelve_labs_video_id: videoId})
-          });
-          
-          if (!chaptersResult.ok) {
-            throw new Error(`HTTP ${chaptersResult.status}: ${chaptersResult.statusText}`);
-          }
-          
-          const result = await chaptersResult.json();
-          console.log('Chapters generation result:', result);
-          
-          if (result && result.data && result.data.chapters) {
-            console.log('Chapters generated successfully:', result.data.chapters);
-            setGeneratedContent(prev => ({
-              ...prev,
-              chapters: result.data.chapters,
-            }));
-            setChaptersLoading(false);
-          } else if (result && result.chapters) {
-            // Handle case where chapters are directly in the result
-            console.log('Chapters found in result:', result.chapters);
-            setGeneratedContent(prev => ({
-              ...prev,
-              chapters: result.chapters,
-            }));
-            setChaptersLoading(false);
-          } else {
-            console.warn('Chapters generation result is not as expected:', result);
-            setGeneratedContent(prev => ({
-              ...prev,
-              chapters: null,
-            }));
-            setChaptersLoading(false);
-          }
-        } catch (error) {
-          console.error('Error generating chapters:', error);
+    const generateChapters = async () => {
+      try {
+        console.log('Generating chapters...');
+        setChaptersLoading(true);
+        const chaptersResult = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/generate_chapters`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({twelve_labs_video_id: videoId})
+        });
+        
+        if (!chaptersResult.ok) {
+          throw new Error(`HTTP ${chaptersResult.status}: ${chaptersResult.statusText}`);
+        }
+        
+        const result = await chaptersResult.json();
+        console.log('Chapters generation result:', result);
+        
+        let chaptersData = null;
+        
+        if (result && result.data && result.data.chapters) {
+          console.log('Chapters generated successfully:', result.data.chapters);
+          chaptersData = result.data.chapters;
+          setGeneratedContent(prev => ({
+            ...prev,
+            chapters: chaptersData,
+          }));
+          setChaptersLoading(false);
+        } else if (result && result.chapters) {
+          // Handle case where chapters are directly in the result
+          console.log('Chapters found in result:', result.chapters);
+          chaptersData = result.chapters;
+          setGeneratedContent(prev => ({
+            ...prev,
+            chapters: chaptersData,
+          }));
+          setChaptersLoading(false);
+        } else {
+          console.warn('Chapters generation result is not as expected:', result);
           setGeneratedContent(prev => ({
             ...prev,
             chapters: null,
           }));
           setChaptersLoading(false);
         }
+        
+        // Generate quiz questions with the chapters data
+        if (chaptersData) {
+          await generateQuizQuestions(chaptersData);
+        }
+        
+      } catch (error) {
+        console.error('Error generating chapters:', error);
+        setGeneratedContent(prev => ({
+          ...prev,
+          chapters: null,
+        }));
+        setChaptersLoading(false);
       }
+    }
 
-      const generateKeyTakeaways = async () => {
-        try {
-          console.log('Generating key takeaways...');
-          const keyTakeawaysResult = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/generate_key_takeaways`, {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json'
-            },
-            body: JSON.stringify({twelve_labs_video_id: videoId})
-          });
-          
-          if (!keyTakeawaysResult.ok) {
-            throw new Error(`HTTP ${keyTakeawaysResult.status}: ${keyTakeawaysResult.statusText}`);
-          }
+    const generateKeyTakeaways = async () => {
+      try {
+        console.log('Generating key takeaways...');
+        const keyTakeawaysResult = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/generate_key_takeaways`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({twelve_labs_video_id: videoId})
+        });
+        
+        if (!keyTakeawaysResult.ok) {
+          throw new Error(`HTTP ${keyTakeawaysResult.status}: ${keyTakeawaysResult.statusText}`);
+        }
 
-          const result = await keyTakeawaysResult.json();
-          console.log('Key takeaways generation result:', result);
-          
-          if (result && result.data && result.data.key_takeaways) {
-            console.log('Key takeaways generated successfully:', result.data.key_takeaways);
-            setGeneratedContent(prev => ({
-              ...prev,
-              keyTakeaways: result.data.key_takeaways,
-            }));
-          } else {
-            console.warn('Key takeaways generation result is not as expected:', result);
-            setGeneratedContent(prev => ({
-              ...prev,
-              keyTakeaways: null,
-            }));
-          }
-        } catch (error) {
-          console.error('Error generating key takeaways:', error);
+        const result = await keyTakeawaysResult.json();
+        console.log('Key takeaways generation result:', result);
+        
+        if (result && result.data && result.data.key_takeaways) {
+          console.log('Key takeaways generated successfully:', result.data.key_takeaways);
+          setGeneratedContent(prev => ({
+            ...prev,
+            keyTakeaways: result.data.key_takeaways,
+          }));
+        } else {
+          console.warn('Key takeaways generation result is not as expected:', result);
           setGeneratedContent(prev => ({
             ...prev,
             keyTakeaways: null,
           }));
         }
+      } catch (error) {
+        console.error('Error generating key takeaways:', error);
+        setGeneratedContent(prev => ({
+          ...prev,
+          keyTakeaways: null,
+        }));
       }
+    }
 
-      const generatePacingRecommendations = async () => {
-        try {
-          const pacingRecommendationsResult = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/generate_pacing_recommendations`, {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json'
-            },
-            body: JSON.stringify({twelve_labs_video_id: videoId})
-          });
-          
-          if (!pacingRecommendationsResult.ok) {
-            throw new Error(`HTTP ${pacingRecommendationsResult.status}: ${pacingRecommendationsResult.statusText}`);
-          }
-          
-          const result = await pacingRecommendationsResult.json();
-          console.log('Pacing recommendations generation result:', result);
-          
-          if (result && result.data && result.data.recommendations) {
-            console.log('Pacing recommendations generated successfully:', result.data.pacing_recommendations);
-            setGeneratedContent(prev => ({
-              ...prev,
-              pacingRecommendations: result.data.recommendations,
-            }));
-          } else {
-            console.warn('Pacing recommendations generation result is not as expected:', result);
-            setGeneratedContent(prev => ({
-              ...prev,
-              pacingRecommendations: null,
-            }));
-          }
-        } catch (error) {
-          console.error('Error generating pacing recommendations:', error);
+    const generatePacingRecommendations = async () => {
+      try {
+        const pacingRecommendationsResult = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/generate_pacing_recommendations`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({twelve_labs_video_id: videoId})
+        });
+        
+        if (!pacingRecommendationsResult.ok) {
+          throw new Error(`HTTP ${pacingRecommendationsResult.status}: ${pacingRecommendationsResult.statusText}`);
+        }
+        
+        const result = await pacingRecommendationsResult.json();
+        console.log('Pacing recommendations generation result:', result);
+        
+        if (result && result.data && result.data.recommendations) {
+          console.log('Pacing recommendations generated successfully:', result.data.pacing_recommendations);
+          setGeneratedContent(prev => ({
+            ...prev,
+            pacingRecommendations: result.data.recommendations,
+          }));
+        } else {
+          console.warn('Pacing recommendations generation result is not as expected:', result);
           setGeneratedContent(prev => ({
             ...prev,
             pacingRecommendations: null,
           }));
         }
+      } catch (error) {
+        console.error('Error generating pacing recommendations:', error);
+        setGeneratedContent(prev => ({
+          ...prev,
+          pacingRecommendations: null,
+        }));
       }
+    }
 
-      const generateQuizQuestions = async () => {
-        try {
-          const quizQuestionsResult = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/generate_quiz_questions`, {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json'
-            },
-            body: JSON.stringify({twelve_labs_video_id: videoId})
-          });
-          
-          if (!quizQuestionsResult.ok) {
-            throw new Error(`HTTP ${quizQuestionsResult.status}: ${quizQuestionsResult.statusText}`);
-          }
+    const generateQuizQuestions = async (chapters) => {
+      try {
+        const quizQuestionsResult = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/generate_quiz_questions`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({twelve_labs_video_id: videoId, chapters: chapters})
+        });
+        
+        if (!quizQuestionsResult.ok) {
+          throw new Error(`HTTP ${quizQuestionsResult.status}: ${quizQuestionsResult.statusText}`);
+        }
 
-          const result = await quizQuestionsResult.json();
-          console.log('Quiz questions generation result:', result);
-          
-          if (result && result.data && result.data.quiz_questions) {
-            console.log('Quiz questions generated successfully:', result.data.quiz_questions);
-            setGeneratedContent(prev => ({
-              ...prev,
-              quizQuestions: result.data.quiz_questions,
-            }));
-          } else {
-            console.warn('Quiz questions generation result is not as expected:', result);
-            setGeneratedContent(prev => ({
-              ...prev,
-              quizQuestions: null,
-            }));
-          }
-        } catch (error) {
-          console.error('Error generating quiz questions:', error);
+        const result = await quizQuestionsResult.json();
+        console.log('Quiz questions generation result:', result);
+        
+        if (result && result.data && result.data.quiz_questions) {
+          console.log('Quiz questions generated successfully:', result.data.quiz_questions);
+          setGeneratedContent(prev => ({
+            ...prev,
+            quizQuestions: result.data.quiz_questions,
+          }));
+        } else {
+          console.warn('Quiz questions generation result is not as expected:', result);
           setGeneratedContent(prev => ({
             ...prev,
             quizQuestions: null,
           }));
         }
+      } catch (error) {
+        console.error('Error generating quiz questions:', error);
+        setGeneratedContent(prev => ({
+          ...prev,
+          quizQuestions: null,
+        }));
       }
+    }
 
-      // Main execution flow
+    useEffect(() => {
+
       const initializeCourse = async () => {
-        // First, fetch video data
         await fetchVideo();
         
-        // Then check for existing course metadata
         const hasExistingData = await fetchExistingCourseMetadata();
 
-        console.log('hasExistingData', hasExistingData)
-        
-        if (hasExistingData) {
-          // If we have existing data, just fetch cached analysis for title/hashtags/topics
+        console.log('generatedContent', generatedContent)
+
+        if (hasExistingData.chapters && hasExistingData.summary && hasExistingData.keyTakeaways && hasExistingData.pacingRecommendations && hasExistingData.quizQuestions) {
+          console.log('has existing data, fetching cached analysis')
           await fetchCachedAnalysis();
         } else {
-          console.log('no existing data, generating new content')
-          // If no existing data, generate new content
+          console.log('data is missing or incomplete, generating new content')
           setIsAnalyzing(true);
           setAnalysisComplete(false);
           await fetchCachedAnalysis();
-          await generateChapters();
           await analyzeLectureWithAI();
           await generateKeyTakeaways();
           await generatePacingRecommendations();
-          await generateQuizQuestions();
+          await generateChapters();
         }
       };
 
-      // Start the initialization
       initializeCourse();
-
-      // Cleanup timeout on unmount
-      return () => clearTimeout(loadingTimeout);
+      
     }, [videoId]);
 
 
@@ -1694,6 +1131,7 @@ export default function VideoPage({ params }) {
                                     </span>
                                     <button 
                                       onClick={() => setQuizChapterSelect(null)}
+                                      disabled={!quizChapterSelect}
                                       className="text-gray-400 hover:text-gray-600 transition-colors"
                                     >
                                       <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">

@@ -16,6 +16,7 @@ pacing_recommendations_prompt = """
 Generate pacing recommendations for the video. It should be a list of recommendations for the instructor to pace the video. Listen to the audio and generate pacing recommendations that are helpful for a student to understand the topic being discussed.
 It should NOT cover every single second of the video. It should be a list of recommendations for the instructor to pace the video.
 Make the timestamps very short and specific.
+Limit to a maximum of 7 recommendations.
 
 Ensure it follows the following data schema:
 
@@ -35,6 +36,7 @@ Generate chapters that covers the detailed subtopics of the video that the instr
 The chapter summary should break down the subtopic into easy to understand instructions, concepts, and more.
 Label each chapter with an approrpriate title with the topic being discussed and methodology while being concise.
 Each chapter should have a detailed start and end time. The start and end time should be in seconds.
+Limit to a maximum number of 9 chapters.
 
 Ensure it follows the following data schema:
 
@@ -56,6 +58,8 @@ Generate quiz questions for the video. It should be a list of quiz questions tha
 
 Here are the chapters of the video:
 {}
+
+Please give at least 1 quiz question per chapter with a maximum of 4 questions per chapter. Make sure it is not just a random question, but one that is educational and helps the student understand the topic being discussed.
 
 Ensure it follows the following data schema:
 

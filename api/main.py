@@ -4,7 +4,7 @@ from helpers import DBHandler
 import json
 import asyncio
 import logging
-from flask import Flask, request, jsonify, Response, session
+from flask import Flask, request, jsonify, Response
 from flask_cors import CORS, cross_origin
 import os
 
@@ -83,15 +83,9 @@ def cached_analysis():
                 'statusCode': 400,
                 'message': 'twelve_labs_video_id is required'
             }), 400
-        
-        if not session.get(twelve_labs_video_id):
-            session[twelve_labs_video_id] = {}
 
         twelvelabs_provider = TwelveLabsHandler(twelve_labs_video_id=twelve_labs_video_id)
-
         gist_result = twelvelabs_provider.generate_gist()
-        
-        session[twelve_labs_video_id]['gist'] = gist_result
 
         return jsonify({
             'statusCode': 200,
@@ -137,9 +131,6 @@ def run_analysis():
                 'status': 'error',
                 'message': 'video_id/twelve_labs_video_id is required'
             }), 400
-
-        if not session.get(twelve_labs_video_id):
-            session[twelve_labs_video_id] = {}
 
         twelvelabs_provider = TwelveLabsHandler(twelve_labs_video_id=twelve_labs_video_id)
 
@@ -214,15 +205,8 @@ def generate_chapters():
                 'message': 'twelve_labs_video_id is required'
             }), 400
         
-        if not session.get(twelve_labs_video_id):
-            session[twelve_labs_video_id] = {}
-
         twelvelabs_provider = TwelveLabsHandler(twelve_labs_video_id=twelve_labs_video_id)
-
         chapters = twelvelabs_provider.generate_chapters()
-        session[twelve_labs_video_id]['chapters'] = chapters
-
-        print(f"Chapters: {chapters}")
 
         return jsonify({
             'status': 'success',
@@ -328,18 +312,23 @@ def generate_quiz_questions():
 
         data = request.json
         twelve_labs_video_id = data.get('twelve_labs_video_id')
+        chapters = data.get('chapters')
 
         if not twelve_labs_video_id:
             return jsonify({
                 'status': 'error',
                 'message': 'twelve_labs_video_id is required'
             }), 400
-        
-        print(session.get(twelve_labs_video_id)) 
+
+        if not chapters:
+            return jsonify({
+                'status': 'error',
+                'message': 'chapters is required'
+            }), 400
 
         twelvelabs_provider = TwelveLabsHandler(twelve_labs_video_id=twelve_labs_video_id)
 
-        quiz_questions = twelvelabs_provider.generate_quiz_questions(session)
+        quiz_questions = twelvelabs_provider.generate_quiz_questions(chapters)
 
         return jsonify({
             'status': 'success',
