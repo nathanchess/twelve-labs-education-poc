@@ -9,11 +9,11 @@ import InstructorCourseView from '../../../components/InstructorCourseView';
 export default function VideoPage({ params }) {
 
   const { videoId } = use(params);
-  const { userRole, userName, isLoggedIn } = useUser(); 
+    const { userRole, userName, isLoggedIn } = useUser(); 
 
   if (true) {
     return <InstructorCourseView videoId={videoId} />
-  } else {
+        } else {
     return <div>Student Course View</div>
   }
 

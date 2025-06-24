@@ -68,6 +68,11 @@ class QuizQuestion(pydantic.BaseModel):
     answer: str
     wrong_answers: list[str]
     chapter_id: int
+    answer_explanation: str
+    hint: str
+
+class QuizQuestionsSchema(pydantic.BaseModel):
+    quiz_questions: list[QuizQuestion]
 
 Response must be in JSON format. Do not include any preamble or postamble.
 """
