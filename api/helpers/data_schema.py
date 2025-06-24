@@ -52,4 +52,7 @@ class EngagementSchema(pydantic.BaseModel):
 class EngagementListSchema(pydantic.BaseModel):
     engagement: list[EngagementSchema]
 
+class TranscriptSchema(pydantic.BaseModel):
+    transcript: str
+    
 __all__ = ['SummarySchema', 'PacingRecommendationsSchema', 'KeyTakeawaysSchema', 'ChaptersSchema', 'QuizQuestionsSchema', 'FlashcardsSchema', 'EngagementSchema', 'EngagementListSchema']

@@ -103,3 +103,19 @@ class EngagementListSchema(pydantic.BaseModel):
 
 Response must be in JSON format. Do not include any preamble or postamble.
 """
+
+multimodal_transcript_prompt = """
+Generate a multimodal transcript of the video that includes the audio from the video and visual description of the video if there is no words spoken at the moment.
+Ensure that you listen to every single word spoken at all times and account for even stuttering or pauses.
+If there is no words spoken, for example there is a slide with a picture, you should describe the picture in detail.
+
+Visual descriptions should be wrapped in <visual> tags.
+Words should be wrapped in <word> tags.
+
+Ensure it follows the following data schema:
+
+class TranscriptSchema(pydantic.BaseModel):
+    transcript: str
+    
+Response must be in JSON format. Do not include any preamble or postamble.
+"""

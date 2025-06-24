@@ -30,6 +30,7 @@ export default function InstructorCourseView({ videoId }) {
       pacingRecommendations: false,
       quizQuestions: false,
       engagement: false,
+      transcript: ''
     });
     const [quizChapterSelect, setQuizChapterSelect] = useState(1);
 
@@ -44,6 +45,7 @@ export default function InstructorCourseView({ videoId }) {
     const [videoCurrentTime, setVideoCurrentTime] = useState(0);
     const [videoDuration, setVideoDuration] = useState(0);
     const [publishing, setPublishing] = useState(false);
+    const [showTranscript, setShowTranscript] = useState(true);
 
     const handleVideoSeekTo = useCallback((seekFunction) => {
       setVideoSeekTo(() => seekFunction);
@@ -151,6 +153,7 @@ export default function InstructorCourseView({ videoId }) {
             pacingRecommendations: result.data.pacing_recommendations || false,
             quizQuestions: result.data.quiz_questions || false,
             engagement: result.data.engagement || false,
+            transcript: result.data.transcript || '',
           }
 
           // Set the existing course data
@@ -465,6 +468,46 @@ export default function InstructorCourseView({ videoId }) {
       }
     }
 
+    const generateMultimodalTranscript = async () => {
+      console.log('Generating multimodal transcript...');
+      try {
+        const transcriptResult = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/generate_multimodal_transcript`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({twelve_labs_video_id: videoId})
+        });
+        
+        if (!transcriptResult.ok) {
+          throw new Error(`HTTP ${transcriptResult.status}: ${transcriptResult.statusText}`);
+        }
+
+        const result = await transcriptResult.json();
+        console.log('Multimodal transcript generation result:', result);
+        
+        if (result && result.data && result.data.transcript) {
+          console.log('Multimodal transcript generated successfully:', result.data.transcript);
+          setGeneratedContent(prev => ({
+            ...prev,
+            transcript: result.data.transcript,
+          }));
+        } else {
+          console.warn('Multimodal transcript generation result is not as expected:', result);
+          setGeneratedContent(prev => ({
+            ...prev,
+            transcript: null,
+          }));
+        }
+      } catch (error) {
+        console.error('Error generating multimodal transcript:', error);
+        setGeneratedContent(prev => ({
+          ...prev,
+          transcript: null,
+        }));
+      }
+    }
+
     useEffect(() => {
 
       const initializeCourse = async () => {
@@ -472,7 +515,7 @@ export default function InstructorCourseView({ videoId }) {
         
         const hasExistingData = await fetchExistingCourseMetadata();
 
-        if (hasExistingData.engagement && hasExistingData.chapters && hasExistingData.summary && hasExistingData.keyTakeaways && hasExistingData.pacingRecommendations && hasExistingData.quizQuestions) {
+        if (hasExistingData.transcript && hasExistingData.engagement && hasExistingData.chapters && hasExistingData.summary && hasExistingData.keyTakeaways && hasExistingData.pacingRecommendations && hasExistingData.quizQuestions) {
           await fetchCachedAnalysis();
         } else {
           console.log('existing data: ', hasExistingData);
@@ -493,6 +536,9 @@ export default function InstructorCourseView({ videoId }) {
           }
           if (!hasExistingData.chapters) {
             await generateChapters();
+          }
+          if (!hasExistingData.transcript) {
+            await generateMultimodalTranscript();
           }
         }
       };
@@ -759,6 +805,7 @@ export default function InstructorCourseView({ videoId }) {
             key_takeaways: generatedContent.keyTakeaways,
             pacing_recommendations: generatedContent.pacingRecommendations,
             engagement: generatedContent.engagement,
+            transcript: generatedContent.transcript,
           }),
         });
 
@@ -891,7 +938,125 @@ export default function InstructorCourseView({ videoId }) {
               <div className="w-full max-w-4xl">
                 <VideoPlayer videoData={videoData} onSeekTo={handleVideoSeekTo} onTimeUpdate={handleVideoTimeUpdate} />
               </div>
+
             </div>
+
+            {/* Transcription Section */}
+            {generatedContent.transcript && typeof generatedContent.transcript === 'string' && generatedContent.transcript.trim() !== '' && (
+              <div className="bg-white border-b border-gray-200 p-4">
+                <div className="max-w-4xl mx-auto">
+                  <div className="flex items-center justify-between mb-3">
+                    <h3 className="text-lg font-semibold text-gray-800 flex items-center gap-2">
+                      <svg className="w-5 h-5 text-indigo-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
+                      </svg>
+                      Live Transcript
+                    </h3>
+                    <div className="flex items-center gap-4">
+                      <div className="text-sm text-gray-500">
+                        Current Time: {Math.floor(videoCurrentTime / 60)}:{(videoCurrentTime % 60).toFixed(0).padStart(2, '0')}
+                      </div>
+                      <button
+                        onClick={() => setShowTranscript(!showTranscript)}
+                        className="text-sm text-indigo-600 hover:text-indigo-800 font-medium flex items-center gap-1"
+                      >
+                        {showTranscript ? (
+                          <>
+                            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 15l7-7 7 7" />
+                            </svg>
+                            Hide
+                          </>
+                        ) : (
+                          <>
+                            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                            </svg>
+                            Show
+                          </>
+                        )}
+                      </button>
+                    </div>
+                  </div>
+                  
+                  {showTranscript && (
+                    <div className="bg-gray-50 rounded-lg p-4 max-h-32 overflow-y-auto">
+                      <div className="flex flex-wrap gap-1 text-sm leading-relaxed">
+                        {(() => {
+                          // Parse the transcript string to extract words and visual descriptions
+                          const transcriptText = generatedContent.transcript || '';
+                          
+                          try {
+                            // Split by tags and process each part
+                            const parts = transcriptText.split(/(<word[^>]*>.*?<\/word>|<visual[^>]*>.*?<\/visual>)/g);
+                            
+                            return parts.map((part, index) => {
+                              // Check if it's a word tag
+                              const wordMatch = part.match(/<word[^>]*start_time="([^"]*)"[^>]*end_time="([^"]*)"[^>]*>(.*?)<\/word>/);
+                              if (wordMatch) {
+                                const [, startTime, endTime, word] = wordMatch;
+                                const isCurrentWord = videoCurrentTime >= parseFloat(startTime) && videoCurrentTime < parseFloat(endTime);
+                                const isPastWord = videoCurrentTime >= parseFloat(endTime);
+                                
+                                return (
+                                  <span
+                                    key={index}
+                                    className={`transition-all duration-200 ${
+                                      isCurrentWord
+                                        ? 'bg-indigo-500 text-white px-1 rounded font-semibold animate-pulse'
+                                        : isPastWord
+                                        ? 'text-gray-600'
+                                        : 'text-gray-400'
+                                    }`}
+                                  >
+                                    {word}
+                                  </span>
+                                );
+                              }
+                              
+                              // Check if it's a visual tag
+                              const visualMatch = part.match(/<visual[^>]*start_time="([^"]*)"[^>]*end_time="([^"]*)"[^>]*>(.*?)<\/visual>/);
+                              if (visualMatch) {
+                                const [, startTime, endTime, description] = visualMatch;
+                                const isCurrentVisual = videoCurrentTime >= parseFloat(startTime) && videoCurrentTime < parseFloat(endTime);
+                                
+                                return (
+                                  <span
+                                    key={index}
+                                    className={`inline-block transition-all duration-200 ${
+                                      isCurrentVisual
+                                        ? 'bg-yellow-500 text-white px-2 py-1 rounded font-medium animate-pulse'
+                                        : 'text-gray-500'
+                                    }`}
+                                  >
+                                    [Visual: {description}]
+                                  </span>
+                                );
+                              }
+                              
+                              // Regular text (spaces, punctuation, etc.)
+                              if (part.trim()) {
+                                return <span key={index} className="text-gray-400">{part}</span>;
+                              }
+                              
+                              return null;
+                            });
+                          } catch (error) {
+                            console.error('Error parsing transcript:', error);
+                            // Fallback: display the raw transcript text
+                            return (
+                              <span className="text-gray-600">
+                                {transcriptText}
+                              </span>
+                            );
+                          }
+                        })()}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
 
             {/* Content Area Below Player */}
             <div className="p-6">
@@ -1428,3 +1593,4 @@ export default function InstructorCourseView({ videoId }) {
     );
   }
 } 
+ 

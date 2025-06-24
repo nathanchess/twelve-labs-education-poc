@@ -307,6 +307,33 @@ class TwelveLabsHandler:
 
             raise Exception(f"Error generating engagement: {str(e)}")
         
+    def generate_multimodal_transcript(self):
+
+        """
+        
+        Generates a multimodal transcript of the video.
+        
+        """
+
+        try:
+
+            raw_transcript = self.twelve_labs_client.analyze(video_id=self.twelve_labs_video_id, prompt=prompts.multimodal_transcript_prompt)
+            transcript = data_schema.TranscriptSchema.model_validate_json(raw_transcript)
+
+            self.transcript = transcript
+
+            return transcript
+        
+        except pydantic.ValidationError as e:
+
+            response = self.reasoning_agent.reformat_text(text=raw_transcript, data_schema=data_schema.TranscriptSchema)
+            self.transcript = response
+
+            return response.model_dump()
+        
+        except Exception as e:
+
+            raise Exception(f"Error generating multimodal transcript: {str(e)}")
 
     def generate_gist(self):
 

@@ -60,7 +60,7 @@ class DBHandler:
             logger.error(f"Full traceback: {traceback.format_exc()}")
             raise Exception(f"Error uploading video IDs: {str(e)}")
         
-    def upload_course_metadata(self, video_id: str, title: str, chapters: list, quiz_questions: list, key_takeaways: list, pacing_recommendations: list, summary: str, engagement: list):
+    def upload_course_metadata(self, video_id: str, title: str, chapters: list, quiz_questions: list, key_takeaways: list, pacing_recommendations: list, summary: str, engagement: list, transcript: str):
         
         """
         
@@ -85,7 +85,8 @@ class DBHandler:
                 'quiz_questions': quiz_questions,
                 'key_takeaways': key_takeaways,
                 'pacing_recommendations': pacing_recommendations,
-                'engagement': engagement
+                'engagement': engagement,
+                'transcript': transcript
             }
 
             response = table.put_item(Item=item)
