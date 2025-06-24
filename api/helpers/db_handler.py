@@ -168,5 +168,109 @@ class DBHandler:
             logger.error(f"=== Error in fetch_course_metadata: {str(e)} ===")
             raise e
         
+    def save_student_reaction(self, video_id: str, reaction: dict):
+        """
+        Saves a student reaction to DynamoDB.
+        """
+        try:
+            table_name = os.getenv('DYNAMODB_CONTENT_TABLE_NAME')
+
+            if not table_name:
+                raise Exception("DYNAMODB_CONTENT_TABLE_NAME environment variable not set")
+
+            table = self.dynamodb.Table(table_name)
+            
+            # Get existing reactions or initialize empty list
+            response = table.get_item(Key={'video_id': video_id})
+            item = response.get('Item', {})
+            
+            existing_reactions = item.get('student_reactions', [])
+            existing_reactions.append(reaction)
+            
+            # Update the item with new reaction
+            update_response = table.update_item(
+                Key={'video_id': video_id},
+                UpdateExpression='SET student_reactions = :reactions',
+                ExpressionAttributeValues={
+                    ':reactions': existing_reactions
+                }
+            )
+
+            logger.info(f"Successfully saved student reaction for video ID: {video_id}")
+            return update_response
+
+        except Exception as e:
+            logger.error(f"=== Error in save_student_reaction: {str(e)} ===")
+            logger.error(f"Exception type: {type(e).__name__}")
+            import traceback
+            logger.error(f"Full traceback: {traceback.format_exc()}")
+            raise Exception(f"Error saving student reaction: {str(e)}")
+
+    def get_student_reactions(self, video_id: str):
+        """
+        Retrieves all student reactions for a given video ID from DynamoDB.
+        """
+        try:
+            table_name = os.getenv('DYNAMODB_CONTENT_TABLE_NAME')
+
+            if not table_name:
+                raise Exception("DYNAMODB_CONTENT_TABLE_NAME environment variable not set")
+
+            table = self.dynamodb.Table(table_name)
+
+            response = table.get_item(Key={'video_id': video_id})
+            item = response.get('Item', {})
+
+            if not item:
+                raise ValueError(f"No course metadata found for video ID: {video_id}")
+
+            student_reactions = item.get('student_reactions', [])
+
+            return student_reactions
+
+        except Exception as e:
+            logger.error(f"=== Error in get_student_reactions: {str(e)} ===")
+            raise e
+
+    def save_wrong_answer(self, student_name: str, video_id: str, wrong_answer: dict):
+        """
+        Saves a student's wrong answer to DynamoDB for analysis.
+        """
+        try:
+            table_name = os.getenv('DYNAMODB_CONTENT_USER_NAME')
+
+            if not table_name:
+                raise Exception("DYNAMODB_CONTENT_USER_NAME environment variable not set")
+
+            table = self.dynamodb.Table(table_name)
+            
+            # Get existing wrong answers or initialize empty list
+            response = table.get_item(Key={'student_name': student_name})
+            item = response.get('Item', {})
+            
+            existing_wrong_answers = item.get(video_id + "_wrong_answers", [])
+            existing_wrong_answers.append(wrong_answer)
+            
+            # Update the item with new wrong answer
+            update_response = table.update_item(
+                Key={'student_name': student_name},
+                UpdateExpression='SET #wrong_answer_id = :wrong_answers',
+                ExpressionAttributeValues={
+                    ':wrong_answers': existing_wrong_answers
+                },
+                ExpressionAttributeNames={
+                    '#wrong_answer_id': video_id + "_wrong_answers"
+                }
+            )
+
+            logger.info(f"Successfully saved wrong answer for video ID: {video_id}")
+            return update_response
+
+        except Exception as e:
+            logger.error(f"=== Error in save_wrong_answer: {str(e)} ===")
+            logger.error(f"Exception type: {type(e).__name__}")
+            import traceback
+            logger.error(f"Full traceback: {traceback.format_exc()}")
+            raise Exception(f"Error saving wrong answer: {str(e)}")
 
 __all__ = ['DBHandler']

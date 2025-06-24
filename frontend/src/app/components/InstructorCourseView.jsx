@@ -46,6 +46,41 @@ export default function InstructorCourseView({ videoId }) {
     const [videoDuration, setVideoDuration] = useState(0);
     const [publishing, setPublishing] = useState(false);
     const [showTranscript, setShowTranscript] = useState(true);
+    const [shuffledOptionsMap, setShuffledOptionsMap] = useState({});
+    const [isHydrated, setIsHydrated] = useState(false);
+
+    // Ensure consistent hydration
+    useEffect(() => {
+      setIsHydrated(true);
+    }, []);
+
+    // Handle animation timing for cached analysis display
+    useEffect(() => {
+      if (generatedTitle && typeof generatedTitle === 'string' && generatedTitle.trim() !== '') {
+        const timer = setTimeout(() => {
+          setTitleCompleted(true);
+        }, 2000);
+        return () => clearTimeout(timer);
+      }
+    }, [generatedTitle]);
+
+    useEffect(() => {
+      if (generatedHashtags && Array.isArray(generatedHashtags) && generatedHashtags.length > 0) {
+        const timer = setTimeout(() => {
+          setHashtagsCompleted(true);
+        }, 2000);
+        return () => clearTimeout(timer);
+      }
+    }, [generatedHashtags]);
+
+    useEffect(() => {
+      if (generatedTopics && Array.isArray(generatedTopics) && generatedTopics.length > 0) {
+        const timer = setTimeout(() => {
+          setTopicsCompleted(true);
+        }, 2000);
+        return () => clearTimeout(timer);
+      }
+    }, [generatedTopics]);
 
     const handleVideoSeekTo = useCallback((seekFunction) => {
       setVideoSeekTo(() => seekFunction);
@@ -81,6 +116,33 @@ export default function InstructorCourseView({ videoId }) {
         console.log('chapterId is null or undefined, skipping quiz selection');
       }
     }, [videoSeekTo]);
+
+    // Generate shuffled options when quizChapterSelect changes (client-side only)
+    useEffect(() => {
+      if (typeof window === 'undefined' || !quizChapterSelect || !generatedContent.quizQuestions) return;
+      
+      const chapterQuestions = generatedContent.quizQuestions.filter(q => q.chapter_id === quizChapterSelect);
+      const newShuffledOptions = {};
+      chapterQuestions.forEach((question, index) => {
+        const allOptions = [question.answer, ...question.wrong_answers];
+        newShuffledOptions[`${quizChapterSelect}-${index}`] = shuffleArray(allOptions);
+      });
+      setShuffledOptionsMap(prev => ({ ...prev, ...newShuffledOptions }));
+    }, [quizChapterSelect, generatedContent.quizQuestions]);
+
+    // Helper function to shuffle array
+    function shuffleArray(array) {
+      // Only shuffle on client side
+      if (typeof window === 'undefined') {
+        return array;
+      }
+      const arr = [...array];
+      for (let i = arr.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [arr[i], arr[j]] = [arr[j], arr[i]];
+      }
+      return arr;
+    }
 
     const fetchVideo = async () => {
       const retrievalURL = `https://api.twelvelabs.io/v1.3/indexes/${process.env.NEXT_PUBLIC_TWELVE_LABS_INDEX_ID}/videos/${videoId}?transcription=true`
@@ -548,8 +610,6 @@ export default function InstructorCourseView({ videoId }) {
       
     }, [videoId]);
 
-
-    // Helper function to calculate progress percentage
     const calculateProgress = () => {
       const contentTypes = Object.keys(generatedContent);
       let completedCount = 0;
@@ -705,55 +765,62 @@ export default function InstructorCourseView({ videoId }) {
       );
     };
 
-    // Cached Analysis Display Component
-    const CachedAnalysisDisplay = ({ title, hashtags, topics }) => {
-      // Ensure we have valid data before proceeding
-      const hasValidTitle = title && typeof title === 'string' && title.trim() !== '';
-      const hasValidHashtags = hashtags && Array.isArray(hashtags) && hashtags.length > 0;
-      const hasValidTopics = topics && Array.isArray(topics) && topics.length > 0;
-      
-      // Return null if there's no valid data to display
-      if (!hasValidTitle && !hasValidHashtags && !hasValidTopics) {
-        return null;
-      }
+    // Cached Analysis Display Component - Memoized to prevent recreation
+    const CachedAnalysisDisplay = React.useMemo(() => {
+      return ({ title, hashtags, topics }) => {
+        // Ensure we have valid data before proceeding
+        const hasValidTitle = title && typeof title === 'string' && title.trim() !== '';
+        const hasValidHashtags = hashtags && Array.isArray(hashtags) && hashtags.length > 0;
+        const hasValidTopics = topics && Array.isArray(topics) && topics.length > 0;
+        
+        // Return null if there's no valid data to display
+        if (!hasValidTitle && !hasValidHashtags && !hasValidTopics) {
+          return null;
+        }
 
-      useEffect(() => {
-        if (hasValidTitle) {
-          setTimeout(() => {
-            setTitleCompleted(true);
-          }, 2000);
+        // Show everything immediately if already completed
+        if (titleCompleted && hashtagsCompleted && topicsCompleted) {
+          return (
+            <div className="mb-8">
+              {hasValidTitle && (
+                <h2 className="text-2xl font-bold text-gray-900 mb-2">
+                  {title}
+                </h2>
+              )}
+              {hasValidHashtags && (
+                <div className="flex flex-wrap gap-2 mb-2">
+                  {hashtags.map((hashtag, idx) => (
+                    <span key={idx} className="text-blue-700 bg-blue-100 px-3 py-1 rounded-full text-sm font-medium">#{hashtag}</span>
+                  ))}
+                </div>
+              )}
+              {hasValidTopics && (
+                <div className="flex flex-wrap gap-2">
+                  {topics.map((topic, idx) => (
+                    <span key={idx} className="bg-gray-200 text-gray-800 px-3 py-1 rounded-full text-sm font-medium">{topic}</span>
+                  ))}
+                </div>
+              )}
+            </div>
+          );
         }
-        if (hasValidHashtags) {
-          setTimeout(() => {
-            setHashtagsCompleted(true);
-          }, 2000);
-        }
-        if (hasValidTopics) {
-          setTimeout(() => {
-            setTopicsCompleted(true);
-          }, 2000);
-        }
-      }, [hasValidTitle, hasValidHashtags, hasValidTopics]);
-      
 
-      // Show everything immediately if already completed
-      if (titleCompleted && hashtagsCompleted && topicsCompleted) {
         return (
           <div className="mb-8">
-            {hasValidTitle && (
+            {!titleCompleted && hasValidTitle && (
               <h2 className="text-2xl font-bold text-gray-900 mb-2">
-                {title}
+                <Typewriter text={title} speed={30} className="inline-block" />
               </h2>
             )}
-            {hasValidHashtags && (
-              <div className="flex flex-wrap gap-2 mb-2">
+            {!hashtagsCompleted && hasValidHashtags && (
+              <div className="flex flex-wrap gap-2 mb-2 animate-fade-in">
                 {hashtags.map((hashtag, idx) => (
                   <span key={idx} className="text-blue-700 bg-blue-100 px-3 py-1 rounded-full text-sm font-medium">#{hashtag}</span>
                 ))}
               </div>
             )}
-            {hasValidTopics && (
-              <div className="flex flex-wrap gap-2">
+            {!topicsCompleted && hasValidTopics && (
+              <div className="flex flex-wrap gap-2 animate-fade-in">
                 {topics.map((topic, idx) => (
                   <span key={idx} className="bg-gray-200 text-gray-800 px-3 py-1 rounded-full text-sm font-medium">{topic}</span>
                 ))}
@@ -761,32 +828,8 @@ export default function InstructorCourseView({ videoId }) {
             )}
           </div>
         );
-      }
-
-      return (
-        <div className="mb-8">
-          {!titleCompleted && hasValidTitle && (
-            <h2 className="text-2xl font-bold text-gray-900 mb-2">
-              <Typewriter text={title} speed={30} className="inline-block" />
-            </h2>
-          )}
-          {!hashtagsCompleted && hasValidHashtags && (
-            <div className="flex flex-wrap gap-2 mb-2 animate-fade-in">
-              {hashtags.map((hashtag, idx) => (
-                <span key={idx} className="text-blue-700 bg-blue-100 px-3 py-1 rounded-full text-sm font-medium">#{hashtag}</span>
-              ))}
-            </div>
-          )}
-          {!topicsCompleted && hasValidTopics && (
-            <div className="flex flex-wrap gap-2 animate-fade-in">
-              {topics.map((topic, idx) => (
-                <span key={idx} className="bg-gray-200 text-gray-800 px-3 py-1 rounded-full text-sm font-medium">{topic}</span>
-              ))}
-            </div>
-          )}
-        </div>
-      );
-    };
+      };
+    }, [titleCompleted, hashtagsCompleted, topicsCompleted]);
 
     const handlePublish = async () => {
       setPublishing(true);
@@ -832,7 +875,7 @@ export default function InstructorCourseView({ videoId }) {
         <div className="min-h-screen bg-gradient-to-br from-white to-gray-50 flex items-center justify-center">
           <div className="text-center">
             <div className="w-16 h-16 border-4 border-blue-500 border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
-            <h2 className="text-xl font-semibold text-gray-800 mb-2">Loading Video...</h2>
+            <h2 className="text-xl font-semibold text-gray-800 mb-2">Loading...</h2>
             <p className="text-gray-600">Please wait while we load your lecture video</p>
             <p className="text-sm text-gray-500 mt-2">Video ID: {videoId}</p>
           </div>
@@ -1408,10 +1451,26 @@ export default function InstructorCourseView({ videoId }) {
                                 {chapterQuestions.length > 0 ? (
                                   <div className="space-y-6">
                                     {chapterQuestions.map((question, questionIndex) => {
-                                      // Create A,B,C,D options by combining correct answer with wrong answers
-                                      const allOptions = [question.answer, ...question.wrong_answers];
-                                      // Shuffle the options to randomize A,B,C,D
-                                      const shuffledOptions = allOptions.sort(() => Math.random() - 0.5);
+                                      // Use stored shuffled options or create them if not available
+                                      const optionsKey = `${quizChapterSelect}-${questionIndex}`;
+                                      let shuffledOptions = shuffledOptionsMap[optionsKey];
+                                      
+                                      // Always start with unshuffled options for consistent server/client rendering
+                                      if (!shuffledOptions) {
+                                        shuffledOptions = [question.answer, ...question.wrong_answers];
+                                      }
+                                      
+                                      // Create shuffled options on client side if not already done
+                                      if (typeof window !== 'undefined' && !shuffledOptionsMap[optionsKey]) {
+                                        // Fallback: create and store shuffled options
+                                        const allOptions = [question.answer, ...question.wrong_answers];
+                                        shuffledOptions = shuffleArray(allOptions);
+                                        setShuffledOptionsMap(prev => ({
+                                          ...prev,
+                                          [optionsKey]: shuffledOptions
+                                        }));
+                                      }
+                                      
                                       const correctOptionIndex = shuffledOptions.indexOf(question.answer);
                                       const optionLabels = ['A', 'B', 'C', 'D'];
                                       

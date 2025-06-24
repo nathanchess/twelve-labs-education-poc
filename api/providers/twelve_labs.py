@@ -1,5 +1,6 @@
 from twelvelabs import TwelveLabs
 from helpers import prompts, data_schema, LectureBuilderAgent
+from .llm import LLMProvider
 
 import pydantic
 import os
@@ -9,7 +10,7 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-class TwelveLabsHandler:
+class TwelveLabsHandler(LLMProvider):
 
     def __init__(self, twelve_labs_index_id: str = "", twelve_labs_video_id: str = ""):
 

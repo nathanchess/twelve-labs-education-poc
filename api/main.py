@@ -8,7 +8,6 @@ from flask import Flask, request, jsonify, Response
 from flask_cors import CORS, cross_origin
 import os
 
-# Configure logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
@@ -139,10 +138,8 @@ def run_analysis():
                 async def async_generate():
                     response = twelvelabs_provider.stream_student_lecture_analysis()
                     async for chunk in response:
-                        # Format as Server-Sent Event
                         yield f"data: {json.dumps(chunk)}\n\n"
-                
-                # Run the async generator in the sync context
+            
                 loop = asyncio.new_event_loop()
                 asyncio.set_event_loop(loop)
                 try:
@@ -540,6 +537,120 @@ def fetch_course_metadata():
 
         print(f"Error in fetch_course_metadata endpoint: {e}")
 
+        return jsonify({
+            'status': 'error',
+            'message': str(e)
+        }), 500
+
+@app.route('/save_student_reaction', methods=['POST'])
+@cross_origin()
+def save_student_reaction():
+    """
+    Saves a student reaction to the database.
+    """
+    try:
+        data = request.json
+        video_id = data.get('video_id')
+        reaction = data.get('reaction')
+
+        if not video_id or not reaction:
+            return jsonify({
+                'status': 'error',
+                'message': 'video_id and reaction are required'
+            }), 400
+
+        db_handler = DBHandler()
+        
+        # Save the reaction to the database
+        result = db_handler.save_student_reaction(video_id=video_id, reaction=reaction)
+
+        return jsonify({
+            'status': 'success',
+            'message': 'Reaction saved successfully'
+        }), 200
+
+    except Exception as e:
+        print(f"Error in save_student_reaction endpoint: {e}")
+        return jsonify({
+            'status': 'error',
+            'message': str(e)
+        }), 500
+
+@app.route('/get_student_reactions', methods=['POST'])
+@cross_origin()
+def get_student_reactions():
+    """
+    Retrieves student reactions for a specific video.
+    """
+    try:
+        data = request.get_json()
+        
+        if not data:
+            return jsonify({
+                'status': 'error',
+                'message': 'No JSON data received'
+            }), 400
+
+        video_id = data.get('video_id')
+        
+        if not video_id:
+            return jsonify({
+                'status': 'error',
+                'message': 'video_id is required'
+            }), 400
+
+        db_handler = DBHandler()
+        reactions = db_handler.get_student_reactions(video_id)
+        
+        return jsonify({
+            'status': 'success',
+            'reactions': reactions
+        }), 200
+
+    except Exception as e:
+        return jsonify({
+            'status': 'error',
+            'message': str(e)
+        }), 500
+
+@app.route('/save_wrong_answer', methods=['POST'])
+@cross_origin()
+def save_wrong_answer():
+    """
+    Saves a student's wrong answer for analysis.
+    """
+    try:
+        data = request.get_json()
+        
+        if not data:
+            return jsonify({
+                'status': 'error',
+                'message': 'No JSON data received'
+            }), 400
+
+        video_id = data.get('video_id')
+        wrong_answer = data.get('wrong_answer')
+        student_name = data.get('student_name')
+
+        logger.info(f"Received data: {data}")
+        
+        if not video_id or not wrong_answer or not student_name:
+            return jsonify({
+                'status': 'error',
+                'message': 'video_id, wrong_answer, and student_name are required'
+            }), 400
+        
+        print(f"Saving wrong answer for video ID: {video_id} by student: {student_name}")
+
+        db_handler = DBHandler()
+        result = db_handler.save_wrong_answer(student_name, video_id, wrong_answer)
+        
+        return jsonify({
+            'status': 'success',
+            'message': 'Wrong answer saved successfully'
+        }), 200
+
+    except Exception as e:
         return jsonify({
             'status': 'error',
             'message': str(e)
