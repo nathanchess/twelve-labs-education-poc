@@ -28,7 +28,6 @@ export default function Dashboard() {
       const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/get_published_courses`);
       if (response.ok) {
         const result = await response.json();
-        // Filter out courses that do not have chapters metadata...
         const courses = result.data.map((course) => {
           if (!course.chapters) {
             return null;

@@ -1,7 +1,7 @@
 'use client';
 
 import { useRouter } from 'next/navigation';
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import React from 'react';
 import VideoPlayer from './VideoPlayer';
 import ChaptersSection from './ChaptersSection';
@@ -26,9 +26,9 @@ export default function InstructorCourseView({ videoId }) {
     const [generatedContent, setGeneratedContent] = useState({
       chapters: false,
       summary: '',
-      keyTakeaways: false,
-      pacingRecommendations: false,
-      quizQuestions: false,
+      key_takeaways: false,
+      pacing_recommendations: false,
+      quiz_questions: false,
       engagement: false,
       transcript: ''
     });
@@ -48,11 +48,20 @@ export default function InstructorCourseView({ videoId }) {
     const [showTranscript, setShowTranscript] = useState(true);
     const [shuffledOptionsMap, setShuffledOptionsMap] = useState({});
     const [isHydrated, setIsHydrated] = useState(false);
+    
+    // Add ref to track initialization
+    const initializedRef = useRef(false);
 
     // Ensure consistent hydration
     useEffect(() => {
       setIsHydrated(true);
     }, []);
+
+    // Debug effect to monitor chapters changes
+    useEffect(() => {
+      console.log('Chapters state changed:', generatedContent.chapters);
+      console.log('Chapters loading state:', chaptersLoading);
+    }, [generatedContent.chapters, chaptersLoading]);
 
     // Handle animation timing for cached analysis display
     useEffect(() => {
@@ -119,16 +128,16 @@ export default function InstructorCourseView({ videoId }) {
 
     // Generate shuffled options when quizChapterSelect changes (client-side only)
     useEffect(() => {
-      if (typeof window === 'undefined' || !quizChapterSelect || !generatedContent.quizQuestions) return;
+      if (typeof window === 'undefined' || !quizChapterSelect || !generatedContent.quiz_questions) return;
       
-      const chapterQuestions = generatedContent.quizQuestions.filter(q => q.chapter_id === quizChapterSelect);
+      const chapterQuestions = generatedContent.quiz_questions.filter(q => q.chapter_id === quizChapterSelect);
       const newShuffledOptions = {};
       chapterQuestions.forEach((question, index) => {
         const allOptions = [question.answer, ...question.wrong_answers];
         newShuffledOptions[`${quizChapterSelect}-${index}`] = shuffleArray(allOptions);
       });
       setShuffledOptionsMap(prev => ({ ...prev, ...newShuffledOptions }));
-    }, [quizChapterSelect, generatedContent.quizQuestions]);
+    }, [quizChapterSelect, generatedContent.quiz_questions]);
 
     // Helper function to shuffle array
     function shuffleArray(array) {
@@ -155,6 +164,20 @@ export default function InstructorCourseView({ videoId }) {
         
         const result = await retrieveVideoResponse.json();
 
+        // Collect all transcript chunks first, then update state once
+        let transcriptText = '';
+        if (result.transcription) {
+          transcriptText = result.transcription.map(chunk => chunk.value).join(' ');
+          console.log('Full transcript:', transcriptText);
+          setGeneratedContent(prev => {
+            const newState = {
+              ...prev,
+              transcript: transcriptText,
+            };
+            return newState;
+          });
+        }
+
         // Create a fallback video data structure
         const videoData = {
           name: result.system_metadata?.filename || 'Unknown Video',
@@ -173,7 +196,10 @@ export default function InstructorCourseView({ videoId }) {
         console.log('Setting loading to false');
         setLoading(false);
         console.log('State updates completed');
-        //clearTimeout(loadingTimeout);
+        
+        // Return the transcript text for immediate use
+        return transcriptText;
+        
       } catch (error) {
         console.error('Error fetching video data:', error);
         // Set a fallback video data
@@ -190,11 +216,12 @@ export default function InstructorCourseView({ videoId }) {
         setVideoData(fallbackData);
         console.log('Setting loading to false (error case)');
         setLoading(false);
-        //clearTimeout(loadingTimeout);
+        
+        return '';
       }
     }
 
-    const fetchExistingCourseMetadata = async () => {
+    const fetchExistingCourseMetadata = async (transcriptFromVideo = '') => {
       try {
         const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/fetch_course_metadata`, {
           method: 'POST',
@@ -207,58 +234,37 @@ export default function InstructorCourseView({ videoId }) {
         if (response.ok) {
           const result = await response.json();
           console.log('Found existing course metadata:', result.data)
-          
-          const generatedContent = {
-            chapters: result.data.chapters || false,
-            summary: result.data.summary || '',
-            keyTakeaways: result.data.key_takeaways || false,
-            pacingRecommendations: result.data.pacing_recommendations || false,
-            quizQuestions: result.data.quiz_questions || false,
-            engagement: result.data.engagement || false,
-            transcript: result.data.transcript || '',
-          }
 
-          // Set the existing course data
-          setGeneratedContent(generatedContent);
-          
-          // Set the title from existing metadata
-          setGeneratedTitle(result.data.title || null);
-          
-          // Fetch HLS video URL for existing course
-          try {
-            console.log('Fetching HLS video URL for existing course...');
-            const hlsResponse = await fetch('/api/fetch-hls-video', {
-              method: 'POST',
-              headers: {
-                'Content-Type': 'application/json',
-              },
-              body: JSON.stringify({ videoId })
-            });
+          console.log('generatedContent:', generatedContent)
+          console.log('transcriptFromVideo:', transcriptFromVideo)
 
-            if (hlsResponse.ok) {
-              const hlsResult = await hlsResponse.json();
-              console.log('HLS video URL fetched:', hlsResult.data.hlsUrl);
-              
-              // Update video data with HLS URL
-              setVideoData(prevData => ({
-                ...prevData,
-                hlsUrl: hlsResult.data.hlsUrl,
-                name: hlsResult.data.title || prevData?.name,
-                size: hlsResult.data.duration || prevData?.size
-              }));
-            } else {
-              console.warn('Failed to fetch HLS video URL for existing course');
+          if (result.data && result.data.chapters) {
+
+            const generatedContentTable = {
+              ...generatedContent,
+              chapters: result.data.chapters || false,
+              summary: result.data.summary || '',
+              key_takeaways: result.data.key_takeaways || false,
+              pacing_recommendations: result.data.pacing_recommendations || false,
+              quiz_questions: result.data.quiz_questions || false,
+              engagement: result.data.engagement || false,
+              transcript: transcriptFromVideo || '',
             }
-          } catch (hlsError) {
-            console.error('Error fetching HLS video URL:', hlsError);
-          }
-          
-          // Mark analysis as complete since we have existing data
-          setIsAnalyzing(false);
-          setAnalysisComplete(true);
-          setChaptersLoading(false);
+  
+            // Set the existing course data
+            setGeneratedContent(generatedContentTable);
+            
+            // Set the title from existing metadata
+            setGeneratedTitle(result.data.title || null);
 
-          return generatedContent;
+            // Mark analysis as complete since we have existing data
+            setIsAnalyzing(false);
+            setAnalysisComplete(true);
+            setChaptersLoading(false);
+
+            return generatedContentTable;
+
+          }
           
         } else {
           console.log('No existing course metadata found, will generate new content')
@@ -310,144 +316,67 @@ export default function InstructorCourseView({ videoId }) {
       }
     }
 
-    const generateChapters = async () => {
-      try {
-        console.log('Generating chapters...');
-        setChaptersLoading(true);
-        const chaptersResult = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/generate_chapters`, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json'
-          },
-          body: JSON.stringify({twelve_labs_video_id: videoId})
-        });
+
+
+    async function parallelAnalysis(api_urls) {
+
+      let chapters = null;
+
+      const pendingPromises = api_urls.map(url => {
+        const promise = fetch(url, {
+          method: 'GET',
+        }).then(response => {
+          if (!response.ok) {
+            throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+          }
+          return response.json();
+        }).then(result => ({ status: 'success', data: result, url: url })).catch(error => ({ status: 'error', error: error, url: url }));
         
-        if (!chaptersResult.ok) {
-          throw new Error(`HTTP ${chaptersResult.status}: ${chaptersResult.statusText}`);
+        return {
+          promiseObj: promise,
+          url: url
+        };
+      });
+
+      let remainingPromises = [...pendingPromises];
+
+      console.log('Remaining promises:', remainingPromises);
+
+      while (remainingPromises.length > 0) {
+        try {
+          const result = await Promise.race(remainingPromises.map(p => p.promiseObj));
+          console.log('Settled result:', result);
+          console.log('generatedContent:', generatedContent)
+          console.log(result.data.type, result.data.data)
+          
+          if (result.status === 'success') {
+            console.log('Success:', result.data);
+            if (result.data.type === 'chapters') {
+              chapters = result.data.data[Object.keys(result.data.data)[0]];
+              console.log('Chapters received:', chapters);
+              setChaptersLoading(false); // Set loading to false when chapters are received
+            }
+            setGeneratedContent(prev => {
+              const updatedContent = {
+                ...prev,
+                [result.data.type]: result.data.data[Object.keys(result.data.data)[0]],
+              };
+              console.log('Updated generatedContent:', updatedContent);
+              return updatedContent;
+            });
+          } else {
+            console.log('Error:', result.error);
+          }
+
+          remainingPromises = remainingPromises.filter(p => p.url !== result.url);
+
+        } catch (error) {
+          console.error('Error in parallel analysis:', error);
+          break;
         }
-        
-        const result = await chaptersResult.json();
-        console.log('Chapters generation result:', result);
-        
-        let chaptersData = null;
-        
-        if (result && result.data && result.data.chapters) {
-          console.log('Chapters generated successfully:', result.data.chapters);
-          chaptersData = result.data.chapters;
-          setGeneratedContent(prev => ({
-            ...prev,
-            chapters: chaptersData,
-          }));
-          setChaptersLoading(false);
-        } else if (result && result.chapters) {
-          // Handle case where chapters are directly in the result
-          console.log('Chapters found in result:', result.chapters);
-          chaptersData = result.chapters;
-          setGeneratedContent(prev => ({
-            ...prev,
-            chapters: chaptersData,
-          }));
-          setChaptersLoading(false);
-        } else {
-          console.warn('Chapters generation result is not as expected:', result);
-          setGeneratedContent(prev => ({
-            ...prev,
-            chapters: null,
-          }));
-          setChaptersLoading(false);
-        }
-        
-        // Generate quiz questions with the chapters data
-        if (chaptersData) {
-          await generateQuizQuestions(chaptersData);
-        }
-        
-      } catch (error) {
-        console.error('Error generating chapters:', error);
-        setGeneratedContent(prev => ({
-          ...prev,
-          chapters: null,
-        }));
-        setChaptersLoading(false);
       }
-    }
-
-    const generateKeyTakeaways = async () => {
-      try {
-        console.log('Generating key takeaways...');
-        const keyTakeawaysResult = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/generate_key_takeaways`, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json'
-          },
-          body: JSON.stringify({twelve_labs_video_id: videoId})
-        });
-        
-        if (!keyTakeawaysResult.ok) {
-          throw new Error(`HTTP ${keyTakeawaysResult.status}: ${keyTakeawaysResult.statusText}`);
-        }
-
-        const result = await keyTakeawaysResult.json();
-        console.log('Key takeaways generation result:', result);
-        
-        if (result && result.data && result.data.key_takeaways) {
-          console.log('Key takeaways generated successfully:', result.data.key_takeaways);
-          setGeneratedContent(prev => ({
-            ...prev,
-            keyTakeaways: result.data.key_takeaways,
-          }));
-        } else {
-          console.warn('Key takeaways generation result is not as expected:', result);
-          setGeneratedContent(prev => ({
-            ...prev,
-            keyTakeaways: null,
-          }));
-        }
-      } catch (error) {
-        console.error('Error generating key takeaways:', error);
-        setGeneratedContent(prev => ({
-          ...prev,
-          keyTakeaways: null,
-        }));
-      }
-    }
-
-    const generatePacingRecommendations = async () => {
-      try {
-        const pacingRecommendationsResult = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/generate_pacing_recommendations`, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json'
-          },
-          body: JSON.stringify({twelve_labs_video_id: videoId})
-        });
-        
-        if (!pacingRecommendationsResult.ok) {
-          throw new Error(`HTTP ${pacingRecommendationsResult.status}: ${pacingRecommendationsResult.statusText}`);
-        }
-        
-        const result = await pacingRecommendationsResult.json();
-        console.log('Pacing recommendations generation result:', result);
-        
-        if (result && result.data && result.data.recommendations) {
-          console.log('Pacing recommendations generated successfully:', result.data.pacing_recommendations);
-          setGeneratedContent(prev => ({
-            ...prev,
-            pacingRecommendations: result.data.recommendations,
-          }));
-        } else {
-          console.warn('Pacing recommendations generation result is not as expected:', result);
-          setGeneratedContent(prev => ({
-            ...prev,
-            pacingRecommendations: null,
-          }));
-        }
-      } catch (error) {
-        console.error('Error generating pacing recommendations:', error);
-        setGeneratedContent(prev => ({
-          ...prev,
-          pacingRecommendations: null,
-        }));
+      if (chapters) {
+        await generateQuizQuestions(chapters);
       }
     }
 
@@ -472,141 +401,99 @@ export default function InstructorCourseView({ videoId }) {
           console.log('Quiz questions generated successfully:', result.data.quiz_questions);
           setGeneratedContent(prev => ({
             ...prev,
-            quizQuestions: result.data.quiz_questions,
+            quiz_questions: result.data.quiz_questions,
           }));
         } else {
           console.warn('Quiz questions generation result is not as expected:', result);
           setGeneratedContent(prev => ({
             ...prev,
-            quizQuestions: null,
+            quiz_questions: null,
           }));
         }
       } catch (error) {
         console.error('Error generating quiz questions:', error);
         setGeneratedContent(prev => ({
           ...prev,
-          quizQuestions: null,
-        }));
-      }
-    }
-
-    const generateEngagement = async () => {
-      console.log('Generating engagement...');
-      try {
-        const engagementResult = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/generate_engagement`, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json'
-          },
-          body: JSON.stringify({twelve_labs_video_id: videoId})
-        });
-        
-        if (!engagementResult.ok) {
-          throw new Error(`HTTP ${engagementResult.status}: ${engagementResult.statusText}`);
-        }
-
-        const result = await engagementResult.json();
-        console.log('Engagement generation result:', result);
-        
-        if (result && result.data && result.data.engagement) {
-          console.log('Engagement generated successfully:', result.data.engagement);
-          setGeneratedContent(prev => ({
-            ...prev,
-            engagement: result.data.engagement,
-          }));
-        } else {
-          console.warn('Engagement generation result is not as expected:', result);
-          setGeneratedContent(prev => ({
-            ...prev,
-            engagement: null,
-          }));
-        }
-      } catch (error) {
-        console.error('Error generating engagement:', error);
-        setGeneratedContent(prev => ({
-          ...prev,
-          engagement: null,
-        }));
-      }
-    }
-
-    const generateMultimodalTranscript = async () => {
-      console.log('Generating multimodal transcript...');
-      try {
-        const transcriptResult = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/generate_multimodal_transcript`, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json'
-          },
-          body: JSON.stringify({twelve_labs_video_id: videoId})
-        });
-        
-        if (!transcriptResult.ok) {
-          throw new Error(`HTTP ${transcriptResult.status}: ${transcriptResult.statusText}`);
-        }
-
-        const result = await transcriptResult.json();
-        console.log('Multimodal transcript generation result:', result);
-        
-        if (result && result.data && result.data.transcript) {
-          console.log('Multimodal transcript generated successfully:', result.data.transcript);
-          setGeneratedContent(prev => ({
-            ...prev,
-            transcript: result.data.transcript,
-          }));
-        } else {
-          console.warn('Multimodal transcript generation result is not as expected:', result);
-          setGeneratedContent(prev => ({
-            ...prev,
-            transcript: null,
-          }));
-        }
-      } catch (error) {
-        console.error('Error generating multimodal transcript:', error);
-        setGeneratedContent(prev => ({
-          ...prev,
-          transcript: null,
+          quiz_questions: null,
         }));
       }
     }
 
     useEffect(() => {
 
-      const initializeCourse = async () => {
-        await fetchVideo();
-        
-        const hasExistingData = await fetchExistingCourseMetadata();
+      if (!videoId) {
+        return;
+      }
 
-        if (hasExistingData.transcript && hasExistingData.engagement && hasExistingData.chapters && hasExistingData.summary && hasExistingData.keyTakeaways && hasExistingData.pacingRecommendations && hasExistingData.quizQuestions) {
+      if (initializedRef.current) {
+        return;
+      }
+
+      console.log('Initializing course');
+
+      const initializeCourse = async () => {
+        // Mark as initialized immediately to prevent double execution
+        initializedRef.current = true;
+        
+        const transcriptFromVideo = await fetchVideo();
+        
+        const hasExistingData = await fetchExistingCourseMetadata(transcriptFromVideo);
+
+        console.log("hasExistingData:", hasExistingData)
+
+        if (hasExistingData && hasExistingData.engagement && hasExistingData.chapters && hasExistingData.summary && hasExistingData.key_takeaways && hasExistingData.pacing_recommendations && hasExistingData.quiz_questions) {
+          
+          console.log("Existing data found, no need to generate new content")
+
           await fetchCachedAnalysis();
+
         } else {
+
           console.log('existing data: ', hasExistingData);
+
           setIsAnalyzing(true);
           setAnalysisComplete(false);
+          setChaptersLoading(true); // Set loading to true when starting to generate content
+
+          let api_urls = []
+
           await fetchCachedAnalysis();
-          if (!hasExistingData.summary) {
+
+          if (!hasExistingData) {
             await analyzeLectureWithAI();
+            api_urls.push(`${process.env.NEXT_PUBLIC_API_URL}/generate_key_takeaways?video_id=${videoId}`);
+            api_urls.push(`${process.env.NEXT_PUBLIC_API_URL}/generate_pacing_recommendations?video_id=${videoId}`);
+            api_urls.push(`${process.env.NEXT_PUBLIC_API_URL}/generate_engagement?video_id=${videoId}`);
+            api_urls.push(`${process.env.NEXT_PUBLIC_API_URL}/generate_chapters?video_id=${videoId}`);
+          } else {
+            
+            if (!hasExistingData.summary) {
+              await analyzeLectureWithAI();
+            }
+
+          if (!hasExistingData.key_takeaways) {
+            api_urls.push(`${process.env.NEXT_PUBLIC_API_URL}/generate_key_takeaways?video_id=${videoId}`);
           }
-          if (!hasExistingData.keyTakeaways) {
-          await generateKeyTakeaways();
+
+          if (!hasExistingData.pacing_recommendations) {
+            api_urls.push(`${process.env.NEXT_PUBLIC_API_URL}/generate_pacing_recommendations?video_id=${videoId}`);
           }
-          if (!hasExistingData.pacingRecommendations) {
-            await generatePacingRecommendations();
-          }
+
           if (!hasExistingData.engagement) {
-            await generateEngagement();
+            api_urls.push(`${process.env.NEXT_PUBLIC_API_URL}/generate_engagement?video_id=${videoId}`);
           }
-          if (!hasExistingData.chapters) {
-            await generateChapters();
+
+            if (!hasExistingData.chapters) {
+              api_urls.push(`${process.env.NEXT_PUBLIC_API_URL}/generate_chapters?video_id=${videoId}`);
+            }
           }
-          if (!hasExistingData.transcript) {
-            await generateMultimodalTranscript();
-          }
+
+          await parallelAnalysis(api_urls);
+
         }
       };
 
       initializeCourse();
-
       
     }, [videoId]);
 
@@ -624,6 +511,11 @@ export default function InstructorCourseView({ videoId }) {
         } else if (key === 'summary') {
           // Summary is complete if it has content
           if (value && typeof value === 'string' && value.trim() !== '') {
+            completedCount++;
+          }
+        } else if (key === 'transcript') {
+          // Transcript is complete if it has content and is not the test value
+          if (value && typeof value === 'string' && value.trim() !== '' && value !== 'TEST') {
             completedCount++;
           }
         } else {
@@ -649,10 +541,9 @@ export default function InstructorCourseView({ videoId }) {
       setIsAnalyzing(true);
       setAnalysisComplete(false);
 
-      console.log('running analysis...')
+      console.log("Running streamed analysis...")
 
       try {
-        console.log('Running analysis...');
         
         const eventSource = new EventSource(`${process.env.NEXT_PUBLIC_API_URL}/run_analysis?video_id=${videoId}`);
 
@@ -844,9 +735,9 @@ export default function InstructorCourseView({ videoId }) {
             summary: generatedContent.summary || '',
             title: generatedTitle || videoData?.name,
             chapters: generatedContent.chapters,
-            quiz_questions: generatedContent.quizQuestions,
-            key_takeaways: generatedContent.keyTakeaways,
-            pacing_recommendations: generatedContent.pacingRecommendations,
+            quiz_questions: generatedContent.quiz_questions,
+            key_takeaways: generatedContent.key_takeaways,
+            pacing_recommendations: generatedContent.pacing_recommendations,
             engagement: generatedContent.engagement,
             transcript: generatedContent.transcript,
           }),
@@ -985,7 +876,7 @@ export default function InstructorCourseView({ videoId }) {
             </div>
 
             {/* Transcription Section */}
-            {generatedContent.transcript && typeof generatedContent.transcript === 'string' && generatedContent.transcript.trim() !== '' && (
+            {generatedContent.transcript && typeof generatedContent.transcript === 'string' && generatedContent.transcript.trim() !== '' && generatedContent.transcript !== 'TEST' ? (
               <div className="bg-white border-b border-gray-200 p-4">
                 <div className="max-w-4xl mx-auto">
                   <div className="flex items-center justify-between mb-3">
@@ -1099,7 +990,7 @@ export default function InstructorCourseView({ videoId }) {
                   )}
                 </div>
               </div>
-            )}
+            ) : null}
 
             {/* Content Area Below Player */}
             <div className="p-6">
@@ -1207,7 +1098,7 @@ export default function InstructorCourseView({ videoId }) {
                   )}
 
                   {/* Key Takeaways */}
-                  {generatedContent.keyTakeaways && Array.isArray(generatedContent.keyTakeaways) && generatedContent.keyTakeaways.length > 0 ? (
+                  {generatedContent.key_takeaways && Array.isArray(generatedContent.key_takeaways) && generatedContent.key_takeaways.length > 0 ? (
                     <div className="bg-white rounded-lg border border-gray-200 p-6">
                       <h3 className="text-lg font-semibold text-gray-800 mb-1 flex items-center gap-2">
                         <svg className="w-5 h-5 text-purple-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -1217,7 +1108,7 @@ export default function InstructorCourseView({ videoId }) {
                       </h3>
                       <p className="text-sm text-gray-500 mb-4">Essential concepts and insights to remember from this lecture</p>
                       <div className="space-y-3">
-                        {generatedContent.keyTakeaways.map((keyTakeaway, index) => (
+                        {generatedContent.key_takeaways.map((keyTakeaway, index) => (
                           <div className="flex items-start gap-3" key={index}> 
                             <div className="w-2 h-2 bg-purple-500 rounded-full mt-2 flex-shrink-0"></div>
                             <p className="text-gray-700">{keyTakeaway}</p>
@@ -1238,7 +1129,7 @@ export default function InstructorCourseView({ videoId }) {
                   )}
 
                   {/* Pacing Recommendations */}
-                  {generatedContent.pacingRecommendations && Array.isArray(generatedContent.pacingRecommendations) && generatedContent.pacingRecommendations.length > 0 ? (
+                  {generatedContent.pacing_recommendations && Array.isArray(generatedContent.pacing_recommendations) && generatedContent.pacing_recommendations.length > 0 ? (
                     <div className="bg-white rounded-lg border border-gray-200 p-6">
                       <h3 className="text-lg font-semibold text-gray-800 mb-1 flex items-center gap-2">
                         <svg className="w-5 h-5 text-orange-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -1248,7 +1139,7 @@ export default function InstructorCourseView({ videoId }) {
                       </h3>
                       <p className="text-sm text-gray-500 mb-4">Suggested study schedule and time allocation for optimal learning</p>
                       <div className="space-y-3">
-                        {generatedContent.pacingRecommendations.map((pacingRecommendation, index) => (
+                        {generatedContent.pacing_recommendations.map((pacingRecommendation, index) => (
                           <div className="flex flex-col p-4 bg-orange-50 rounded-lg space-y-2" key={index}>
                             <div className="flex items-center justify-between">
                               <div className="flex items-center space-x-2">
@@ -1256,8 +1147,7 @@ export default function InstructorCourseView({ videoId }) {
                                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
                                 </svg>
                                 <span className="text-sm text-orange-600">
-                                  {Math.floor(pacingRecommendation.start_time / 60)}:{String(Math.floor(pacingRecommendation.start_time % 60)).padStart(2, '0')} - 
-                                  {Math.floor(pacingRecommendation.end_time / 60)}:{String(Math.floor(pacingRecommendation.end_time % 60)).padStart(2, '0')}
+                                  {Math.floor(pacingRecommendation.start_time / 60)}:{String(Math.floor(pacingRecommendation.start_time % 60)).padStart(2, '0')}
                                 </span>
                               </div>
                               <span className={`text-sm font-medium px-2 py-1 rounded ${
@@ -1417,11 +1307,11 @@ export default function InstructorCourseView({ videoId }) {
                       </div>
 
                       {/* Quiz Questions Display - Full Width */}
-                      {quizChapterSelect && generatedContent.quizQuestions && (
+                      {quizChapterSelect && generatedContent.quiz_questions && (
                         <div className="mt-8 w-full p-6 bg-white border border-gray-200 rounded-lg shadow-sm">
                           {(() => {
                             const selectedChapter = generatedContent.chapters?.find(ch => ch.chapter_id === quizChapterSelect);
-                            const chapterQuestions = generatedContent.quizQuestions.filter(q => q.chapter_id === quizChapterSelect);
+                            const chapterQuestions = generatedContent.quiz_questions.filter(q => q.chapter_id === quizChapterSelect);
                             
                             return (
                               <div>

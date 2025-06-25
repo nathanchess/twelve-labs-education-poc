@@ -1,6 +1,9 @@
 import React from 'react';
 
 export default function ChaptersSection({ videoData, chapters, loading, seekTo, currentTime, duration }) {
+
+    console.log('chapters:', chapters)
+
     const formatTime = (time) => {
       const minutes = Math.floor(time / 60);
       const seconds = Math.floor(time % 60);

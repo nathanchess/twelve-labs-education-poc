@@ -5,10 +5,6 @@ class LLMProvider(ABC):
     @abstractmethod
     def __init__(self, *args, **kwargs):
         pass
-
-    @abstractmethod
-    def generate_summary(self):
-        pass
     
     @abstractmethod
     def generate_chapters(self):

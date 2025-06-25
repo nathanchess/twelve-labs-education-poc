@@ -114,8 +114,7 @@ Generate a multimodal transcript of the video that includes the audio from the v
 Ensure that you listen to every single word spoken at all times and account for even stuttering or pauses.
 If there is no words spoken, for example there is a slide with a picture, you should describe the picture in detail.
 
-Visual descriptions should be wrapped in <visual> tags.
-Words should be wrapped in <word> tags.
+Limit the transcript to a maximum of 300 words. Do not scan through the whole video if it is longer than 300 words.
 
 Ensure it follows the following data schema:
 

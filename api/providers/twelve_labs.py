@@ -33,8 +33,6 @@ class TwelveLabsHandler(LLMProvider):
         self.quiz_questions = None
         self.flashcards = None
 
-        print("Initialized TwelveLabsHandler for video: ", self.twelve_labs_video_id)
-
     def _list_indexes(self):
 
         """
@@ -156,7 +154,7 @@ class TwelveLabsHandler(LLMProvider):
 
             raise Exception(f"Error deconstructing video: {str(e)}")
         
-    def generate_chapters(self):
+    async def generate_chapters(self):
 
         """
         
@@ -168,7 +166,11 @@ class TwelveLabsHandler(LLMProvider):
 
         try:
 
-            raw_chapters = self.twelve_labs_client.analyze(video_id=self.twelve_labs_video_id, prompt=prompts.chapter_prompt)
+            raw_chapters = await asyncio.to_thread(
+                self.twelve_labs_client.analyze,
+                video_id=self.twelve_labs_video_id,
+                prompt=prompts.chapter_prompt
+            )
             chapters = data_schema.ChaptersSchema.model_validate_json(raw_chapters)
 
             self.chapters = chapters
@@ -177,7 +179,11 @@ class TwelveLabsHandler(LLMProvider):
         
         except pydantic.ValidationError as e:
 
-            response = self.reasoning_agent.reformat_text(text=raw_chapters, data_schema=data_schema.ChaptersSchema)
+            response = await asyncio.to_thread(
+                self.reasoning_agent.reformat_text,
+                text=raw_chapters,
+                data_schema=data_schema.ChaptersSchema
+            )
             self.chapters = response
 
             return response.model_dump()
@@ -186,7 +192,7 @@ class TwelveLabsHandler(LLMProvider):
 
             raise Exception(f"Error generating chapters: {str(e)}")
         
-    def generate_key_takeaways(self):
+    async def generate_key_takeaways(self):
 
         """
         
@@ -196,7 +202,11 @@ class TwelveLabsHandler(LLMProvider):
 
         try:
 
-            raw_key_takeaways = self.twelve_labs_client.analyze(video_id=self.twelve_labs_video_id, prompt=prompts.key_takeaways_prompt)
+            raw_key_takeaways = await asyncio.to_thread(
+                self.twelve_labs_client.analyze,
+                video_id=self.twelve_labs_video_id,
+                prompt=prompts.key_takeaways_prompt
+            )
             key_takeaways = data_schema.KeyTakeawaysSchema.model_validate_json(raw_key_takeaways)
 
             self.key_takeaways = key_takeaways
@@ -205,7 +215,11 @@ class TwelveLabsHandler(LLMProvider):
         
         except pydantic.ValidationError as e:
 
-            response = self.reasoning_agent.reformat_text(text=raw_key_takeaways, data_schema=data_schema.KeyTakeawaysSchema)
+            response = await asyncio.to_thread(
+                self.reasoning_agent.reformat_text,
+                text=raw_key_takeaways,
+                data_schema=data_schema.KeyTakeawaysSchema
+            )
             self.key_takeaways = response
 
             return response.model_dump()
@@ -214,7 +228,7 @@ class TwelveLabsHandler(LLMProvider):
 
             raise Exception(f"Error generating key takeaways: {str(e)}")
         
-    def generate_pacing_recommendations(self):
+    async def generate_pacing_recommendations(self):
 
         """
         
@@ -224,7 +238,11 @@ class TwelveLabsHandler(LLMProvider):
 
         try:
 
-            raw_pacing_recommendations = self.twelve_labs_client.analyze(video_id=self.twelve_labs_video_id, prompt=prompts.pacing_recommendations_prompt)
+            raw_pacing_recommendations = await asyncio.to_thread(
+                self.twelve_labs_client.analyze,
+                video_id=self.twelve_labs_video_id,
+                prompt=prompts.pacing_recommendations_prompt
+            )
             pacing_recommendations = data_schema.PacingRecommendationsSchema.model_validate_json(raw_pacing_recommendations)
 
             self.pacing_recommendations = pacing_recommendations
@@ -233,7 +251,11 @@ class TwelveLabsHandler(LLMProvider):
         
         except pydantic.ValidationError as e:
 
-            response = self.reasoning_agent.reformat_text(text=raw_pacing_recommendations, data_schema=data_schema.PacingRecommendationsSchema)
+            response = await asyncio.to_thread(
+                self.reasoning_agent.reformat_text,
+                text=raw_pacing_recommendations,
+                data_schema=data_schema.PacingRecommendationsSchema
+            )
             self.pacing_recommendations = response
             
             return response.model_dump()
@@ -242,7 +264,7 @@ class TwelveLabsHandler(LLMProvider):
             
             raise Exception(f"Error generating pacing recommendations: {str(e)}")
         
-    def generate_quiz_questions(self, chapters: list):
+    async def generate_quiz_questions(self, chapters: list):
 
         """
         
@@ -262,7 +284,11 @@ class TwelveLabsHandler(LLMProvider):
 
         try:
 
-            raw_quiz_questions = self.twelve_labs_client.analyze(video_id=self.twelve_labs_video_id, prompt=quiz_questions_prompt)
+            raw_quiz_questions = await asyncio.to_thread(
+                self.twelve_labs_client.analyze,
+                video_id=self.twelve_labs_video_id,
+                prompt=quiz_questions_prompt
+            )
             quiz_questions = data_schema.QuizQuestionsSchema.model_validate_json(raw_quiz_questions)
 
             self.quiz_questions = quiz_questions
@@ -271,7 +297,11 @@ class TwelveLabsHandler(LLMProvider):
         
         except pydantic.ValidationError as e:
             
-            response = self.reasoning_agent.reformat_text(text=raw_quiz_questions, data_schema=data_schema.QuizQuestionsSchema)
+            response = await asyncio.to_thread(
+                self.reasoning_agent.reformat_text,
+                text=raw_quiz_questions,
+                data_schema=data_schema.QuizQuestionsSchema
+            )
             self.quiz_questions = response
 
             return response.model_dump()
@@ -280,7 +310,7 @@ class TwelveLabsHandler(LLMProvider):
 
             raise Exception(f"Error generating quiz questions: {e}")
         
-    def generate_engagement(self):
+    async def generate_engagement(self):
 
         """
 
@@ -290,7 +320,11 @@ class TwelveLabsHandler(LLMProvider):
         
         try:
 
-            raw_engagement = self.twelve_labs_client.analyze(video_id=self.twelve_labs_video_id, prompt=prompts.engagement_prompt)
+            raw_engagement = await asyncio.to_thread(
+                self.twelve_labs_client.analyze,
+                video_id=self.twelve_labs_video_id,
+                prompt=prompts.engagement_prompt
+            )
             engagement = data_schema.EngagementListSchema.model_validate_json(raw_engagement)
 
             self.engagement = engagement
@@ -299,7 +333,11 @@ class TwelveLabsHandler(LLMProvider):
         
         except pydantic.ValidationError as e:
 
-            response = self.reasoning_agent.reformat_text(text=raw_engagement, data_schema=data_schema.EngagementListSchema)
+            response = await asyncio.to_thread(
+                self.reasoning_agent.reformat_text,
+                text=raw_engagement,
+                data_schema=data_schema.EngagementListSchema
+            )
             self.engagement = response
 
             return response.model_dump()
@@ -308,7 +346,7 @@ class TwelveLabsHandler(LLMProvider):
 
             raise Exception(f"Error generating engagement: {str(e)}")
         
-    def generate_multimodal_transcript(self):
+    async def generate_multimodal_transcript(self):
 
         """
         
@@ -318,7 +356,11 @@ class TwelveLabsHandler(LLMProvider):
 
         try:
 
-            raw_transcript = self.twelve_labs_client.analyze(video_id=self.twelve_labs_video_id, prompt=prompts.multimodal_transcript_prompt)
+            raw_transcript = await asyncio.to_thread(
+                self.twelve_labs_client.analyze,
+                video_id=self.twelve_labs_video_id,
+                prompt=prompts.multimodal_transcript_prompt
+            )
             transcript = data_schema.TranscriptSchema.model_validate_json(raw_transcript)
 
             self.transcript = transcript
@@ -327,7 +369,11 @@ class TwelveLabsHandler(LLMProvider):
         
         except pydantic.ValidationError as e:
 
-            response = self.reasoning_agent.reformat_text(text=raw_transcript, data_schema=data_schema.TranscriptSchema)
+            response = await asyncio.to_thread(
+                self.reasoning_agent.reformat_text,
+                text=raw_transcript,
+                data_schema=data_schema.TranscriptSchema
+            )
             self.transcript = response
 
             return response.model_dump()

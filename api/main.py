@@ -1,23 +1,59 @@
+from decimal import Decimal
 from providers import TwelveLabsHandler
 from helpers import DBHandler
 
 import json
 import asyncio
 import logging
-from flask import Flask, request, jsonify, Response
-from flask_cors import CORS, cross_origin
 import os
+from starlette.middleware.cors import CORSMiddleware
+from fastapi import FastAPI, Request
+from fastapi.responses import JSONResponse, StreamingResponse
+
+from decimal import Decimal
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-app = Flask(__name__)
-CORS(app)
-app.secret_key = os.urandom(24)
+app = FastAPI()
 
-@app.route('/upload_video', methods=['POST'])
-@cross_origin()
-def upload_video():
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],  # Allow all origins for development
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+# Helper Functions
+
+def convert_decimals_for_json(data) -> any:
+    
+    """
+    Recursively convert Decimal objects to strings to make data JSON serializable.
+    
+    Args:
+        data: Any data structure (dict, list, or primitive type)
+        
+    Returns:
+        The same data structure with all Decimal objects converted to strings
+    """
+    
+    def recursive_convert(obj):
+        
+        if isinstance(obj, Decimal):
+            return str(obj)
+        elif isinstance(obj, dict):
+            return {key: recursive_convert(value) for key, value in obj.items()}
+        elif isinstance(obj, list):
+            return [recursive_convert(item) for item in obj]
+        else:
+            return obj
+    
+    return recursive_convert(data)
+
+@app.post('/upload_video')
+async def upload_video(request: Request):
 
     """
     
@@ -28,41 +64,40 @@ def upload_video():
     """
     
     try:
-        data = request.get_json()
+        data = await request.json()
 
         if not data:
-            return jsonify({
+            return JSONResponse({
                 'status': 'error',
                 'message': 'No JSON data received'
-            }), 400
+            }, status_code=400)
 
         db_handler = DBHandler()
         
         twelve_labs_video_id = data.get('twelve_labs_video_id')
         
         if not twelve_labs_video_id:
-            return jsonify({
+            return JSONResponse({
                 'status': 'error',
                 'message': 'twelve_labs_video_id is required'
-            }), 400
+            }, status_code=400)
 
         result = db_handler.upload_video_ids(twelve_labs_video_id=twelve_labs_video_id)
         
     except Exception as e:
         
-        return jsonify({
+        return JSONResponse({
             'status': 'error',
             'message': str(e)
-        }), 500
+        }, status_code=500)
 
-    return jsonify({
+    return JSONResponse({
         'status': 'success',
         'message': 'Video uploaded successfully'
-    }), 200
+    }, status_code=200)
 
-@app.route('/cached_analysis', methods=['POST'])
-@cross_origin()
-def cached_analysis():
+@app.post('/cached_analysis')
+async def cached_analysis(request: Request):
     
     """
     Returns cached analysis for each given provider for common queries.
@@ -74,36 +109,36 @@ def cached_analysis():
     """
     
     try:
-        data = request.json
+        data = await request.json()
         twelve_labs_video_id = data.get('twelve_labs_video_id')
 
         if not twelve_labs_video_id:
-            return jsonify({
+            return JSONResponse({
                 'statusCode': 400,
                 'message': 'twelve_labs_video_id is required'
-            }), 400
+            }, status_code=400)
 
         twelvelabs_provider = TwelveLabsHandler(twelve_labs_video_id=twelve_labs_video_id)
         gist_result = twelvelabs_provider.generate_gist()
 
-        return jsonify({
+        return JSONResponse({
             'statusCode': 200,
             'message': 'Cached analysis retrieved successfully',
             'data': {
                 'twelve_labs': gist_result
             }
-        })
+        }, status_code=200)
 
     except Exception as e:
 
-        return jsonify({
+        return JSONResponse({
             'statusCode': 500,
             'message': str(e)
-        }), 500
+        }, status_code=500)
 
-@app.route('/run_analysis', methods=['GET', 'POST'])
-@cross_origin()
-def run_analysis():
+@app.get('/run_analysis')
+@app.post('/run_analysis')
+async def run_analysis(request: Request):
 
     """
     
@@ -120,16 +155,17 @@ def run_analysis():
     try:
         # Handle both GET and POST requests
         if request.method == 'GET':
-            twelve_labs_video_id = request.args.get('video_id')
+            twelve_labs_video_id = request.query_params.get('video_id')
         else:  # POST
-            data = request.json
+            data = await request.json()
             twelve_labs_video_id = data.get('twelve_labs_video_id')
 
         if not twelve_labs_video_id:
-            return jsonify({
+            return JSONResponse({
                 'status': 'error',
+                'type': 'student_lecture_analysis',
                 'message': 'video_id/twelve_labs_video_id is required'
-            }), 400
+            }, status_code=400)
 
         twelvelabs_provider = TwelveLabsHandler(twelve_labs_video_id=twelve_labs_video_id)
 
@@ -155,16 +191,16 @@ def run_analysis():
                     
             except Exception as e:
                 error_data = {
-                    'type': 'error',
+                    'type': 'student_lecture_analysis',
                     'chunk': None,
                     'status': 'error',
                     'error': str(e)
                 }
                 yield f"data: {json.dumps(error_data)}\n\n"
 
-        return Response(
+        return StreamingResponse(
             generate(),
-            mimetype='text/event-stream',
+            media_type='text/event-stream',
             headers={
                 'Cache-Control': 'no-cache',
                 'Connection': 'keep-alive'
@@ -172,14 +208,15 @@ def run_analysis():
         )
 
     except Exception as e:
-        return jsonify({
+        return JSONResponse({
             'status': 'error',
             'message': str(e)
-        }), 500
+        }, status_code=500)
 
-@app.route('/generate_chapters', methods=['POST'])
-@cross_origin()
-def generate_chapters():
+@app.get('/generate_chapters')
+@app.post('/generate_chapters')
+#@cross_origin()
+async def generate_chapters(request: Request):
     
     """
     Generates chapters for a video.
@@ -191,236 +228,290 @@ def generate_chapters():
     
     """
 
+    logger.info('Generating chapters')
+
     try:
 
-        data = request.json
-        twelve_labs_video_id = data.get('twelve_labs_video_id')
+        if request.method == 'GET':
+            twelve_labs_video_id = request.query_params.get('video_id')
+        else:
+            data = await request.json()
+            twelve_labs_video_id = data.get('twelve_labs_video_id')
 
         if not twelve_labs_video_id:
-            return jsonify({
+            return {
                 'status': 'error',
+                'type': 'chapters',
                 'message': 'twelve_labs_video_id is required'
-            }), 400
+            }
         
         twelvelabs_provider = TwelveLabsHandler(twelve_labs_video_id=twelve_labs_video_id)
-        chapters = twelvelabs_provider.generate_chapters()
+        chapters = await twelvelabs_provider.generate_chapters()
 
-        return jsonify({
+        return {
             'status': 'success',
+            'type': 'chapters',
             'message': 'Chapters generated successfully',
             'data': chapters
-        }), 200
+        }
     
     except Exception as e:
 
         print(f"Error in generate_chapters endpoint: {str(e)}")
 
-        return jsonify({
+        return {
             'status': 'error',
+            'type': 'chapters',
             'message': str(e)
-        }), 500
+        }
     
-@app.route('/generate_pacing_recommendations', methods=['POST'])
-@cross_origin()
-def generate_pacing_recommendations():
+@app.get('/generate_pacing_recommendations')
+@app.post('/generate_pacing_recommendations')
+#@cross_origin()
+async def generate_pacing_recommendations(request: Request):
 
     """
     Generates pacing recommendations for a video.
     """
 
+    logger.info('Generating pacing recommendations')
+
     try:
 
-        data = request.json
-        twelve_labs_video_id = data.get('twelve_labs_video_id')
+        if request.method == 'GET':
+            twelve_labs_video_id = request.query_params.get('video_id')
+        else:
+            data = await request.json()
+            twelve_labs_video_id = data.get('twelve_labs_video_id')
 
         if not twelve_labs_video_id:
-            return jsonify({
+            return {
                 'status': 'error',
+                'type': 'pacing_recommendations',
                 'message': 'twelve_labs_video_id is required'
-            }), 400
+            }
 
         twelvelabs_provider = TwelveLabsHandler(twelve_labs_video_id=twelve_labs_video_id)
 
-        pacing_recommendations = twelvelabs_provider.generate_pacing_recommendations()
+        pacing_recommendations = await twelvelabs_provider.generate_pacing_recommendations()
 
-        return jsonify({
+        return {
             'status': 'success',
+            'type': 'pacing_recommendations',
             'message': 'Pacing recommendations generated successfully',
             'data': pacing_recommendations
-        }), 200
+        }
     
     except Exception as e:
 
         print(f"Error in generate_pacing_recommendations endpoint: {str(e)}")
 
-        return jsonify({
+        return {
             'status': 'error',
+            'type': 'pacing_recommendations',
             'message': str(e)
-        }), 500
+        }
     
-@app.route('/generate_key_takeaways', methods=['POST'])
-@cross_origin()
-def generate_key_takeaways():
+@app.get('/generate_key_takeaways')
+@app.post('/generate_key_takeaways')
+#@cross_origin()
+async def generate_key_takeaways(request: Request):
 
     """
     Generates key takeaways for a video.
     """
 
+    logger.info('Generating key takeaways')
+
     try:
 
-        data = request.json
-        twelve_labs_video_id = data.get('twelve_labs_video_id')
+        if request.method == 'GET':
+            twelve_labs_video_id = request.query_params.get('video_id')
+        else:
+            data = await request.json()
+            twelve_labs_video_id = data.get('twelve_labs_video_id')
 
         if not twelve_labs_video_id:
-            return jsonify({
+            return {
                 'status': 'error',
+                'type': 'key_takeaways',
                 'message': 'twelve_labs_video_id is required'
-            }), 400
+            }
         
 
         twelvelabs_provider = TwelveLabsHandler(twelve_labs_video_id=twelve_labs_video_id)
 
-        key_takeaways = twelvelabs_provider.generate_key_takeaways()
+        key_takeaways = await twelvelabs_provider.generate_key_takeaways()
 
-        return jsonify({
+        return {
             'status': 'success',
+            'type': 'key_takeaways',
             'message': 'Key takeaways generated successfully',
             'data': key_takeaways
-        }), 200
+        }
     
     except Exception as e:
 
         print(f"Error in generate_key_takeaways endpoint: {str(e)}")
 
-        return jsonify({
+        return {
             'status': 'error',
+            'type': 'key_takeaways',
             'message': str(e)
-        }), 500
+        }
 
-@app.route('/generate_quiz_questions', methods=['POST'])
-@cross_origin()
-def generate_quiz_questions():
+@app.get('/generate_quiz_questions')
+@app.post('/generate_quiz_questions')
+#@cross_origin()
+async def generate_quiz_questions(request: Request):
 
     """
     Generates quiz questions for a video.
     """
 
+    logger.info('Generating quiz questions')
+
     try:
 
-        data = request.json
-        twelve_labs_video_id = data.get('twelve_labs_video_id')
-        chapters = data.get('chapters')
+        if request.method == 'GET':
+            twelve_labs_video_id = request.query_params.get('video_id')
+            chapters = request.query_params.get('chapters')
+        else:
+            data = await request.json()
+            twelve_labs_video_id = data.get('twelve_labs_video_id')
+            chapters = data.get('chapters')
 
         if not twelve_labs_video_id:
-            return jsonify({
+            return {
                 'status': 'error',
+                'type': 'quiz_questions',
                 'message': 'twelve_labs_video_id is required'
-            }), 400
+            }
 
         if not chapters:
-            return jsonify({
+            return {
                 'status': 'error',
+                'type': 'quiz_questions',
                 'message': 'chapters is required'
-            }), 400
+            }
 
         twelvelabs_provider = TwelveLabsHandler(twelve_labs_video_id=twelve_labs_video_id)
 
-        quiz_questions = twelvelabs_provider.generate_quiz_questions(chapters)
+        quiz_questions = await twelvelabs_provider.generate_quiz_questions(chapters)
 
-        return jsonify({
+        return {
             'status': 'success',
+            'type': 'quiz_questions',
             'message': 'Quiz questions generated successfully',
             'data': quiz_questions
-        }), 200
+        }
     
     except Exception as e:
 
         print(f"Error in generate_quiz_questions endpoint: {e}")
 
-        return jsonify({
+        return {
             'status': 'error',
+            'type': 'quiz_questions',
             'message': str(e)
-        }), 500
+        }
     
-@app.route('/generate_engagement', methods=['POST'])
-@cross_origin()
-def generate_engagement():
+@app.get('/generate_engagement')
+@app.post('/generate_engagement')
+#@cross_origin()
+async def generate_engagement(request: Request):
     
     """
     Generates engagement for a video.
     """
+
+    logger.info('Generating engagement')
     
     try:
 
-        data = request.json
-        twelve_labs_video_id = data.get('twelve_labs_video_id')
+        if request.method == 'GET':
+            twelve_labs_video_id = request.query_params.get('video_id')
+        else:
+            data = await request.json()
+            twelve_labs_video_id = data.get('twelve_labs_video_id')
 
         if not twelve_labs_video_id:
-            return jsonify({
+            return {
                 'status': 'error',
+                'type': 'engagement',
                 'message': 'twelve_labs_video_id is required'
-            }), 400
+            }
         
         twelvelabs_provider = TwelveLabsHandler(twelve_labs_video_id=twelve_labs_video_id)
 
-        engagement = twelvelabs_provider.generate_engagement()
+        engagement = await twelvelabs_provider.generate_engagement()
 
-        return jsonify({
+        return {
             'status': 'success',
+            'type': 'engagement',
             'message': 'Engagement generated successfully',
             'data': engagement
-        }), 200
+        }
     
     except Exception as e:
         
         print(f"Error in generate_engagement endpoint: {e}")
         
-        return jsonify({
+        return {
             'status': 'error',
+            'type': 'engagement',
             'message': str(e)
-        }), 500
+        }
     
-@app.route('/generate_multimodal_transcript', methods=['POST'])
-@cross_origin()
-def generate_multimodal_transcript():
+@app.get('/generate_multimodal_transcript')
+@app.post('/generate_multimodal_transcript')
+#@cross_origin()
+async def generate_multimodal_transcript(request: Request):
 
     """
     Generates a multimodal transcript of a video.
     """
 
+    logger.info('Generating multimodal transcript')
+
     try:
 
-        data = request.json
-        twelve_labs_video_id = data.get('twelve_labs_video_id')
+        if request.method == 'GET':
+            twelve_labs_video_id = request.query_params.get('video_id')
+        else:
+            data = await request.json()
+            twelve_labs_video_id = data.get('twelve_labs_video_id')
 
         if not twelve_labs_video_id:
-            return jsonify({
+            return {
                 'status': 'error',
+                'type': 'multimodal_transcript',
                 'message': 'twelve_labs_video_id is required'
-            }), 400
+            }
         
         twelvelabs_provider = TwelveLabsHandler(twelve_labs_video_id=twelve_labs_video_id)
 
-        transcript = twelvelabs_provider.generate_multimodal_transcript()
+        transcript = await twelvelabs_provider.generate_multimodal_transcript()
 
-        return jsonify({
+        return {
             'status': 'success',
+            'type': 'multimodal_transcript',
             'message': 'Multimodal transcript generated successfully',
             'data': transcript
-        }), 200
+        }
     
     except Exception as e:
         
         print(f"Error in generate_multimodal_transcript endpoint: {e}")
         
-        return jsonify({
+        return {
             'status': 'error',
+            'type': 'multimodal_transcript',
             'message': str(e)
-        }), 500
+        }
 
-@app.route('/publish_course', methods=['POST'])
-@cross_origin()
-def publish_course():
+@app.post('/publish_course')
+async def publish_course(request: Request):
 
     """
     Publishes a course to the database.
@@ -428,13 +519,13 @@ def publish_course():
 
     try:
 
-        data = request.json
+        data = await request.json()
 
         if not data:
-            return jsonify({
+            return JSONResponse({
                 'status': 'error',
                 'message': 'No JSON data received'
-            }), 400
+            }, status_code=400)
 
         db_handler = DBHandler()
 
@@ -448,31 +539,33 @@ def publish_course():
         engagement = data.get('engagement')
         transcript = data.get('transcript')
 
+        print(f"Publishing course with data: {data}")
+
         if not video_id or not title or not chapters or not quiz_questions or not key_takeaways or not pacing_recommendations or not summary or not engagement or not transcript:
-            return jsonify({
+            return JSONResponse({
                 'status': 'error',
                 'message': 'Missing required fields'
-            }), 400
+            }, status_code=400)
 
         result = db_handler.upload_course_metadata(video_id=video_id, title=title, chapters=chapters, quiz_questions=quiz_questions, key_takeaways=key_takeaways, pacing_recommendations=pacing_recommendations, summary=summary, engagement=engagement, transcript=transcript)
 
-        return jsonify({
+        return JSONResponse({
             'status': 'success',
             'message': 'Course published successfully'
-        }), 200
+        }, status_code=200)
 
     except Exception as e:
 
         print(f"Error in publish_course endpoint: {e}")
 
-        return jsonify({
+        return JSONResponse({
             'status': 'error',
             'message': str(e)
-        }), 500
+        }, status_code=500)
 
-@app.route('/get_published_courses', methods=['GET'])
-@cross_origin()
-def get_published_courses():
+@app.get('/get_published_courses')
+@app.post('/get_published_courses')
+async def get_published_courses(request: Request):
 
     """
     Retrieves all published courses from the database.
@@ -483,24 +576,29 @@ def get_published_courses():
         db_handler = DBHandler()
         courses = db_handler.get_published_courses()
 
-        return jsonify({
+        courses = convert_decimals_for_json(courses)
+
+        return JSONResponse({
             'status': 'success',
             'message': 'Published courses retrieved successfully',
             'data': courses
-        }), 200
+        }, status_code=200)
 
     except Exception as e:
 
         print(f"Error in get_published_courses endpoint: {e}")
+        print(f"Error type: {type(e)}")
+        import traceback
+        traceback.print_exc()
 
-        return jsonify({
+        return JSONResponse({
             'status': 'error',
             'message': str(e)
-        }), 500
+        }, status_code=500)
     
-@app.route('/fetch_course_metadata', methods=['POST'])
-@cross_origin()
-def fetch_course_metadata():
+@app.get('/fetch_course_metadata')
+@app.post('/fetch_course_metadata')
+async def fetch_course_metadata(request: Request):
 
     """
     Fetches course metadata for a given video ID from the database.
@@ -508,153 +606,148 @@ def fetch_course_metadata():
 
     try:
 
-        data = request.json
+        data = await request.json()
         video_id = data.get('video_id')
 
         if not video_id:
-            return jsonify({
+            return JSONResponse({
                 'status': 'error',
                 'message': 'video_id is required'
-            }), 400
+            }, status_code=400)
         
         db_handler = DBHandler()
         course_metadata = db_handler.fetch_course_metadata(video_id=video_id)
 
-        return jsonify({
+        course_metadata = convert_decimals_for_json(course_metadata)
+
+        return JSONResponse({
             'status': 'success',
             'message': 'Course metadata fetched successfully',
             'data': course_metadata
-        }), 200
+        }, status_code=200)
     
     except ValueError as e:
 
-        return jsonify({
+        return JSONResponse({
             'status': 'error',
             'message': str(e)
-        }), 404
+        }, status_code=404)
     
     except Exception as e:
 
         print(f"Error in fetch_course_metadata endpoint: {e}")
 
-        return jsonify({
+        return JSONResponse({
             'status': 'error',
             'message': str(e)
-        }), 500
+        }, status_code=500)
 
-@app.route('/save_student_reaction', methods=['POST'])
-@cross_origin()
-def save_student_reaction():
+@app.post('/save_student_reaction')
+async def save_student_reaction(request: Request):
     """
     Saves a student reaction to the database.
     """
     try:
-        data = request.json
+        data = await request.json()
         video_id = data.get('video_id')
         reaction = data.get('reaction')
 
         if not video_id or not reaction:
-            return jsonify({
+            return JSONResponse({
                 'status': 'error',
                 'message': 'video_id and reaction are required'
-            }), 400
+            }, status_code=400)
 
         db_handler = DBHandler()
         
         # Save the reaction to the database
         result = db_handler.save_student_reaction(video_id=video_id, reaction=reaction)
 
-        return jsonify({
+        return JSONResponse({
             'status': 'success',
             'message': 'Reaction saved successfully'
-        }), 200
+        }, status_code=200)
 
     except Exception as e:
         print(f"Error in save_student_reaction endpoint: {e}")
-        return jsonify({
+        return JSONResponse({
             'status': 'error',
             'message': str(e)
-        }), 500
+        }, status_code=500)
 
-@app.route('/get_student_reactions', methods=['POST'])
-@cross_origin()
-def get_student_reactions():
+@app.post('/get_student_reactions')
+async def get_student_reactions(request: Request):
     """
-    Retrieves student reactions for a specific video.
+    Retrieves student reactions for a given video ID from the database.
     """
     try:
-        data = request.get_json()
-        
+        data = await request.json()
+        video_id = data.get('video_id')
+
         if not data:
-            return jsonify({
+            return JSONResponse({
                 'status': 'error',
                 'message': 'No JSON data received'
-            }), 400
-
-        video_id = data.get('video_id')
+            }, status_code=400)
         
         if not video_id:
-            return jsonify({
+            return JSONResponse({
                 'status': 'error',
                 'message': 'video_id is required'
-            }), 400
-
+            }, status_code=400)
+        
         db_handler = DBHandler()
         reactions = db_handler.get_student_reactions(video_id)
+
+        reactions = convert_decimals_for_json(reactions)
         
-        return jsonify({
+        return JSONResponse({
             'status': 'success',
             'reactions': reactions
-        }), 200
+        }, status_code=200)
 
     except Exception as e:
-        return jsonify({
+        return JSONResponse({
             'status': 'error',
             'message': str(e)
-        }), 500
+        }, status_code=500)
 
-@app.route('/save_wrong_answer', methods=['POST'])
-@cross_origin()
-def save_wrong_answer():
+@app.post('/save_wrong_answer')
+async def save_wrong_answer(request: Request):
     """
-    Saves a student's wrong answer for analysis.
+    Saves a wrong answer to the database.
     """
     try:
-        data = request.get_json()
-        
-        if not data:
-            return jsonify({
-                'status': 'error',
-                'message': 'No JSON data received'
-            }), 400
-
+        data = await request.json()
         video_id = data.get('video_id')
         wrong_answer = data.get('wrong_answer')
         student_name = data.get('student_name')
 
-        logger.info(f"Received data: {data}")
+        if not data:
+            return JSONResponse({
+                'status': 'error',
+                'message': 'No JSON data received'
+            }, status_code=400)
         
         if not video_id or not wrong_answer or not student_name:
-            return jsonify({
+            return JSONResponse({
                 'status': 'error',
                 'message': 'video_id, wrong_answer, and student_name are required'
-            }), 400
+            }, status_code=400)
         
-        print(f"Saving wrong answer for video ID: {video_id} by student: {student_name}")
-
         db_handler = DBHandler()
         result = db_handler.save_wrong_answer(student_name, video_id, wrong_answer)
         
-        return jsonify({
+        return JSONResponse({
             'status': 'success',
             'message': 'Wrong answer saved successfully'
-        }), 200
+        }, status_code=200)
 
     except Exception as e:
-        return jsonify({
+        return JSONResponse({
             'status': 'error',
             'message': str(e)
-        }), 500
+        }, status_code=500)
 
 if __name__ == "__main__":
 

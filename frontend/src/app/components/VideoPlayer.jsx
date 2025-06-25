@@ -214,7 +214,7 @@ export default function VideoPlayer({ videoData, onSeekTo, onTimeUpdate }) {
     }, [videoData]);
   
     return (
-      <div className="relative bg-black rounded-lg overflow-hidden shadow-2xl">
+      <div className="relative bg-black rounded-lg overflow-hidden shadow-2xl" suppressHydrationWarning>
         {videoData && (videoData.blobUrl || videoData.hlsUrl) ? (
           <>
             {isLoading && (
