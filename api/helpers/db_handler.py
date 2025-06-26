@@ -20,7 +20,7 @@ class DBHandler:
             logger.error(f"Error creating DynamoDB resource: {str(e)}")
             raise
 
-    def upload_video_ids(self, twelve_labs_video_id: str):
+    def upload_video_ids(self, twelve_labs_video_id: str, s3_key: str, gemini_file_id: str):
 
         """
         
@@ -43,6 +43,8 @@ class DBHandler:
             # Fix: The Item should be a simple dictionary, not nested with type annotations
             item = {
                 'video_id': twelve_labs_video_id,
+                's3_key': s3_key,
+                'gemini_file_id': gemini_file_id,
                 'created_at': boto3.dynamodb.types.Decimal(str(int(time.time()))),
             }
             

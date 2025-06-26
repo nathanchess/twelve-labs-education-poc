@@ -81,6 +81,8 @@ def convert_for_dynamodb(data) -> any:
 # Dependency Models
 class VideoIdRequest(BaseModel):
     twelve_labs_video_id: str
+    s3_key: str
+    gemini_file_id: str
 
 async def get_video_id_from_request(request: Request, body: VideoIdRequest | None = None):
 
@@ -89,9 +91,14 @@ async def get_video_id_from_request(request: Request, body: VideoIdRequest | Non
     """
 
     if request.method == 'GET':
-        return request.query_params.get('video_id')
+        video_id = request.query_params.get('video_id')
+        s3_key = request.query_params.get('s3_key')
+        gemini_file_id = request.query_params.get('gemini_file_id')
+        return video_id, s3_key, gemini_file_id
     elif request.method == 'POST':
         video_id = body.twelve_labs_video_id
+        s3_key = body.s3_key
+        gemini_file_id = body.gemini_file_id
     else:
         raise HTTPException(status_code=405, detail="Method not allowed")
     
@@ -102,7 +109,7 @@ async def get_video_id_from_request(request: Request, body: VideoIdRequest | Non
 
 
 @app.post('/upload_video')
-async def upload_video(twelve_labs_video_id: str = Depends(get_video_id_from_request)):
+async def upload_video(twelve_labs_video_id: str = Depends(get_video_id_from_request), s3_key: str = Depends(get_video_id_from_request), gemini_file_id: str = Depends(get_video_id_from_request)):
 
     """
     
@@ -114,7 +121,7 @@ async def upload_video(twelve_labs_video_id: str = Depends(get_video_id_from_req
     
     try:
         db_handler = DBHandler()
-        result = db_handler.upload_video_ids(twelve_labs_video_id=twelve_labs_video_id)
+        result = db_handler.upload_video_ids(twelve_labs_video_id=twelve_labs_video_id, s3_key=s3_key, gemini_file_id=gemini_file_id)
         
     except Exception as e:
         
