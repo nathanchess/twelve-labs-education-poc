@@ -532,55 +532,64 @@ export default function StudentCourseView({ videoId, userName }) {
                 
                 {/* Answer Options */}
                 <div className="space-y-3">
-                  {shuffledOptions.map((option, index) => (
-                    <button
-                      key={index}
-                      onClick={() => handleAnswerSelect(option)}
-                      disabled={selectedAnswer !== null}
-                      className={`w-full p-4 rounded-lg border-2 transition-all duration-200 text-left ${
-                        selectedAnswer === null
-                          ? 'border-gray-200 hover:border-blue-300 hover:bg-blue-50'
-                          : selectedAnswer === option
-                          ? option === currentQuestion.answer
-                            ? 'border-green-500 bg-green-50 text-green-800'
-                            : 'border-red-500 bg-red-50 text-red-800'
-                          : option === currentQuestion.answer
-                          ? 'border-green-500 bg-green-50 text-green-800'
-                          : 'border-gray-200 bg-gray-50'
-                      }`}
-                    >
-                      <div className={`flex items-center gap-3`}>
-                        <div className={`flex-shrink-0 w-8 h-8 rounded-full flex items-center justify-center text-sm font-semibold ${
-                          selectedAnswer === null
-                            ? 'bg-gray-200 text-gray-600'
-                            : selectedAnswer === option
-                            ? option === currentQuestion.answer
-                              ? 'bg-green-500 text-white'
-                              : 'bg-red-500 text-white'
-                            : option === currentQuestion.answer
-                            ? 'bg-green-500 text-white'
-                            : 'bg-gray-200 text-gray-600'
-                        }`}>
-                          {optionLabels[index]}
+                  {shuffledOptions.map((option, index) => {
+                    const isSelected = selectedAnswer === option;
+                    const isCorrect = option === currentQuestion.answer;
+                    const isAnswered = selectedAnswer !== null;
+                    
+                    let buttonClasses = 'w-full p-4 rounded-lg border-2 transition-all duration-200 text-left cursor-pointer';
+                    let circleClasses = 'flex-shrink-0 w-8 h-8 rounded-full flex items-center justify-center text-sm font-semibold';
+                    
+                    if (isAnswered) {
+                      // Question has been answered
+                      if (isSelected && isCorrect) {
+                        buttonClasses += ' border-green-500 bg-green-50 text-green-800';
+                        circleClasses += ' bg-green-500 text-white';
+                      } else if (isSelected && !isCorrect) {
+                        buttonClasses += ' border-red-500 bg-red-50 text-red-800';
+                        circleClasses += ' bg-red-500 text-white';
+                      } else if (isCorrect) {
+                        buttonClasses += ' border-green-500 bg-green-50 text-green-800';
+                        circleClasses += ' bg-green-500 text-white';
+                      } else {
+                        buttonClasses += ' border-gray-200 bg-gray-50 text-gray-600';
+                        circleClasses += ' bg-gray-200 text-gray-600';
+                      }
+                    } else {
+                      // Question not answered yet
+                      buttonClasses += ' border-gray-200 hover:border-blue-300 hover:bg-blue-50';
+                      circleClasses += ' bg-gray-200 text-gray-600';
+                    }
+                    
+                    return (
+                      <button
+                        key={index}
+                        onClick={() => !isAnswered && handleAnswerSelect(option)}
+                        className={buttonClasses}
+                      >
+                        <div className="flex items-center gap-3">
+                          <div className={circleClasses}>
+                            {optionLabels[index]}
+                          </div>
+                          <span className="font-medium">{option}</span>
+                          {isAnswered && isCorrect && (
+                            <div className="ml-auto">
+                              <svg className="w-5 h-5 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                              </svg>
+                            </div>
+                          )}
+                          {isAnswered && isSelected && !isCorrect && (
+                            <div className="ml-auto">
+                              <svg className="w-5 h-5 text-red-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                              </svg>
+                            </div>
+                          )}
                         </div>
-                        <span className="font-medium">{option}</span>
-                        {selectedAnswer !== null && option === currentQuestion.answer && (
-                          <div className="ml-auto">
-                            <svg className="w-5 h-5 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-                            </svg>
-                          </div>
-                        )}
-                        {selectedAnswer !== null && selectedAnswer === option && option !== currentQuestion.answer && (
-                          <div className="ml-auto">
-                            <svg className="w-5 h-5 text-red-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                            </svg>
-                          </div>
-                        )}
-                      </div>
-                    </button>
-                  ))}
+                      </button>
+                    );
+                  })}
                 </div>
                 
                 {/* Feedback Message */}

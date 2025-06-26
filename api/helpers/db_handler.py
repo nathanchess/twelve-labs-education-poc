@@ -442,5 +442,32 @@ class DBHandler:
         except Exception as e:
             logger.error(f"=== Error in fetch_finished_videos: {str(e)} ===")
             raise e
+        
+    def fetch_student_data_from_course(self, video_id: str):
+        
+        """
+        
+        Fetches all student data from a course from DynamoDB.
+        
+        """
+
+        try:
+
+            table_name = os.getenv('DYNAMODB_CONTENT_USER_NAME')
+
+            if not table_name:
+                raise Exception("DYNAMODB_CONTENT_USER_NAME environment variable not set")
+
+            table = self.dynamodb.Table(table_name)
+
+            response = table.scan()
+
+            items = response.get('Items', [])
+
+            return items
+        
+        except Exception as e:
+            logger.error(f"=== Error in fetch_student_data_from_course: {str(e)} ===")
+            raise e
 
 __all__ = ['DBHandler']

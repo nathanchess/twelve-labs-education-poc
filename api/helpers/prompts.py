@@ -182,3 +182,35 @@ class ConceptMasterySchema(pydantic.BaseModel):
 
 Response must be in JSON format. Do not include any preamble or postamble.
 """
+
+course_analysis_prompt = """
+Here is a lecture video metadata and student data:
+1. Video Metadata: {video_metadata}
+2. Student Data: {student_data}
+
+Generate a course analysis based on the video metadata and student data.
+
+Content engagement should be based off engagement events, student data, and the transcript.
+
+Ensure it follows the following data schema:
+
+class MostChallengingClassTopic(pydantic.BaseModel):
+    percentage_of_students_struggling: int
+    topic: str
+    reasoning: str
+
+class ContentEngagement(pydantic.BaseModel):
+    chapter_id: int
+    engagement_level: int
+    engagement_reason: str
+    timestamp: str
+
+class CourseAnalysisSchema(pydantic.BaseModel):
+    most_challenging_class_topic: MostChallengingClassTopic
+    recommended_action: str
+    challenging_concepts: list[str]
+    next_steps: str
+    content_engagement: list[ContentEngagement]
+
+Response must be in JSON format. Do not include any preamble or postamble.
+"""

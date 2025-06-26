@@ -592,7 +592,9 @@ async def publish_course(request: Request):
 async def get_published_courses(request: Request):
 
     """
+
     Retrieves all published courses from the database.
+
     """
 
     try:
@@ -703,7 +705,9 @@ async def save_student_reaction(request: Request):
 @app.post('/get_student_reactions')
 async def get_student_reactions(request: Request):
     """
+
     Retrieves student reactions for a given video ID from the database.
+
     """
     try:
         data = await request.json()
@@ -832,7 +836,9 @@ async def calculate_quiz_performance_by_student(request: Request):
 @app.post('/get_student_progress_report')
 async def get_student_progress_report(request: Request):
     """
+
     Retrieves a student's progress report from the database.
+
     """
     try:
         data = await request.json()
@@ -899,6 +905,109 @@ async def get_finished_videos(request: Request):
             'status': 'error',
             'message': str(e)
         }, status_code=500)
+    
+@app.post('/generate_course_analysis')
+async def generate_course_analysis(request: Request):
+    
+    """
+    
+    Generates course analysis for a given video ID from the database.
+
+    """
+
+    try:
+        
+        data = await request.json()
+        video_id = data.get('video_id')
+        
+        if not video_id:
+            return JSONResponse({
+                'status': 'error',
+                'message': 'video_id is required'
+            }, status_code=400)
+        
+        db_handler = DBHandler()
+        student_data = db_handler.fetch_student_data_from_course(video_id)
+        video_metadata = db_handler.fetch_course_metadata(video_id)
+
+        if not student_data:
+            return JSONResponse({
+                'status': 'error',
+                'message': 'No student data found for this video'
+            }, status_code=400)
+        
+        if not video_metadata:
+            return JSONResponse({
+                'status': 'error',
+                'message': 'No video metadata found for this video'
+            }, status_code=400)
+        
+        lecture_builder_agent = EvaluationAgent(video_metadata)
+        course_analysis = lecture_builder_agent.generate_course_analysis(student_data)
+
+        # Convert Pydantic model to dictionary
+        if hasattr(course_analysis, 'model_dump'):
+            course_analysis_dict = course_analysis.model_dump()
+        else:
+            course_analysis_dict = course_analysis
+
+        course_analysis = convert_decimals_for_json(course_analysis_dict)
+        
+        print(course_analysis)
+
+        return JSONResponse({
+            'status': 'success',
+            'message': 'Course analysis generated successfully',
+            'data': course_analysis
+        }, status_code=200)
+
+    except Exception as e:
+        print(f"Error in generate_course_analysis: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        return JSONResponse({
+            'status': 'error',
+            'message': str(e)
+        }, status_code=500)
+
+@app.post('/fetch_student_data_from_course')
+async def fetch_student_data_from_course(request: Request):
+    
+    """
+    
+    Fetches all student data from a course from the database.
+    
+    """
+    
+    try:
+
+        data = await request.json()
+        video_id = data.get('video_id')
+
+        if not video_id:
+            return JSONResponse({
+                'status': 'error',
+                'message': 'video_id is required'
+            }, status_code=400)
+        
+        db_handler = DBHandler()
+        student_data = db_handler.fetch_student_data_from_course(video_id)
+
+        student_data = convert_decimals_for_json(student_data)
+
+        return JSONResponse({
+            'status': 'success',
+            'message': 'Student data fetched successfully',
+            'data': student_data
+        }, status_code=200)
+
+    except Exception as e:
+
+        return JSONResponse({
+            'status': 'error',
+            'message': str(e)
+        }, status_code=500)
+
 
 if __name__ == "__main__":
 

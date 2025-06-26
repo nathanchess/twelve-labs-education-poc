@@ -76,4 +76,23 @@ class ConceptMastery(pydantic.BaseModel):
 class ConceptMasterySchema(pydantic.BaseModel):
     concept_mastery: list[ConceptMastery]
 
+class MostChallengingClassTopic(pydantic.BaseModel):
+    percentage_of_students_struggling: int
+    topic: str
+    reasoning: str
+
+class ContentEngagement(pydantic.BaseModel):
+    chapter_id: int
+    engagement_level: int
+    engagement_reason: str
+    timestamp: str
+
+class CourseAnalysisSchema(pydantic.BaseModel):
+    most_challenging_class_topic: MostChallengingClassTopic
+    recommended_action: str
+    challenging_concepts: list[str]
+    next_steps: str
+    content_engagement: list[ContentEngagement]
+
+
 __all__ = ['SummarySchema', 'PacingRecommendationsSchema', 'KeyTakeawaysSchema', 'ChaptersSchema', 'QuizQuestionsSchema', 'FlashcardsSchema', 'EngagementSchema', 'EngagementListSchema']

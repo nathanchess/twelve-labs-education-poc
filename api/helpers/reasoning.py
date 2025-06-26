@@ -2,8 +2,8 @@ import pydantic
 import boto3
 import instructor
 
-from .prompts import study_recommendations_prompt, concept_mastery_prompt
-from .data_schema import StudyRecommendationsSchema, ConceptMasterySchema
+from .prompts import study_recommendations_prompt, concept_mastery_prompt, course_analysis_prompt
+from .data_schema import StudyRecommendationsSchema, ConceptMasterySchema, CourseAnalysisSchema
 
 class LectureBuilderAgent:
 
@@ -147,5 +147,26 @@ class EvaluationAgent:
         except Exception as e:
 
             raise Exception(f"Error calculating quiz performance: {str(e)}")
+        
+    def generate_course_analysis(self, student_data: dict):
+        
+        try:
+            
+            prompt = course_analysis_prompt.format(
+                video_metadata=self.video_metadata,
+                student_data=student_data
+            )
+            
+            response = self.instructor_client.chat.completions.create(
+                model=self.bedrock_model_id,
+                messages=[{'role': 'user', 'content': prompt}],
+                response_model=CourseAnalysisSchema
+            )
+            
+            return response
+        
+        except Exception as e:
 
-__all__ = ['LectureBuilderAgent']
+            raise Exception(f"Error generating course analysis: {str(e)}")
+
+__all__ = ['LectureBuilderAgent', 'EvaluationAgent']
