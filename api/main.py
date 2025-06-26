@@ -1,16 +1,15 @@
-from decimal import Decimal
 from providers import TwelveLabsHandler
 from helpers import DBHandler
+from helpers.reasoning import LectureBuilderAgent, EvaluationAgent
 
+from decimal import Decimal
 import json
 import asyncio
 import logging
-import os
+import uvicorn
 from starlette.middleware.cors import CORSMiddleware
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse, StreamingResponse
-
-from decimal import Decimal
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -44,7 +43,32 @@ def convert_decimals_for_json(data) -> any:
         if isinstance(obj, Decimal):
             return str(obj)
         elif isinstance(obj, dict):
-            return {key: recursive_convert(value) for key, value in obj.items()}
+            return {str(key): recursive_convert(value) for key, value in obj.items()}
+        elif isinstance(obj, list):
+            return [recursive_convert(item) for item in obj]
+        else:
+            return obj
+    
+    return recursive_convert(data)
+
+def convert_for_dynamodb(data) -> any:
+    
+    """
+    Recursively convert float objects to Decimal objects for DynamoDB storage.
+    
+    Args:
+        data: Any data structure (dict, list, or primitive type)
+        
+    Returns:
+        The same data structure with all float objects converted to Decimal objects
+    """
+    
+    def recursive_convert(obj):
+        
+        if isinstance(obj, float):
+            return Decimal(str(obj))
+        elif isinstance(obj, dict):
+            return {str(key): recursive_convert(value) for key, value in obj.items()}
         elif isinstance(obj, list):
             return [recursive_convert(item) for item in obj]
         else:
@@ -659,6 +683,7 @@ async def save_student_reaction(request: Request):
             }, status_code=400)
 
         db_handler = DBHandler()
+        reaction = convert_for_dynamodb(reaction)
         
         # Save the reaction to the database
         result = db_handler.save_student_reaction(video_id=video_id, reaction=reaction)
@@ -748,7 +773,133 @@ async def save_wrong_answer(request: Request):
             'status': 'error',
             'message': str(e)
         }, status_code=500)
+    
+@app.post('/calculate_quiz_performance')
+async def calculate_quiz_performance_by_student(request: Request):
+    
+    """
+    
+    Calculates quiz performance for a given video ID and student from the database.
+    
+    """
+
+    try:
+        data = await request.json()
+
+        video_id = data.get('video_id')
+        student_name = data.get('student_name')
+
+        if not video_id or not student_name:
+            return JSONResponse({
+                'status': 'error',
+                'message': 'video_id and student_name are required'
+            }, status_code=400)
+        
+        db_handler = DBHandler()
+        video_metadata = db_handler.fetch_course_metadata(video_id)
+        wrong_answers = db_handler.get_student_profile(student_name)[video_id + '_wrong_answers']
+
+        if not wrong_answers:
+            return JSONResponse({
+                'status': 'error',
+                'message': 'Student has not answered any questions yet...'
+            }, status_code=400)
+
+        evaluation_agent = EvaluationAgent(video_metadata)
+        quiz_performance = evaluation_agent.calculate_quiz_performance(wrong_answers)
+
+        # Convert for DynamoDB storage (floats to Decimal)
+        quiz_performance_for_db = convert_for_dynamodb(quiz_performance)
+        
+        # Convert for JSON response (Decimal to string)
+        quiz_performance_for_response = convert_decimals_for_json(quiz_performance)
+
+        # Start background task to save progress report
+        asyncio.create_task(db_handler.save_student_progress_report(student_name, video_id, quiz_performance_for_db))
+
+        return JSONResponse({
+            'status': 'success',
+            'message': 'Quiz performance calculated successfully',
+            'data': quiz_performance_for_response
+        }, status_code=200)
+
+    except Exception as e:
+        return JSONResponse({
+            'status': 'error',
+            'message': str(e)
+        }, status_code=500)
+    
+@app.post('/get_student_progress_report')
+async def get_student_progress_report(request: Request):
+    """
+    Retrieves a student's progress report from the database.
+    """
+    try:
+        data = await request.json()
+        student_name = data.get('student_name')
+        video_id = data.get('video_id')
+
+        if not student_name or not video_id:
+            return JSONResponse({
+                'status': 'error',
+                'message': 'student_name and video_id are required'
+            }, status_code=400)
+        
+        db_handler = DBHandler()
+        progress_report = db_handler.fetch_student_progress_report(student_name, video_id)
+
+        # If no progress report exists, return a specific status
+        if progress_report is None:
+            return JSONResponse({
+                'status': 'not_found',
+                'message': 'No progress report found for this student and video',
+                'data': None
+            }, status_code=200)
+        
+        progress_report = convert_decimals_for_json(progress_report)
+
+        return JSONResponse({
+            'status': 'success',
+            'message': 'Progress report fetched successfully',
+            'data': progress_report
+        }, status_code=200)
+
+    except Exception as e:
+        return JSONResponse({
+            'status': 'error',
+            'message': str(e)
+        }, status_code=500)
+
+@app.post('/get_finished_videos')
+async def get_finished_videos(request: Request):
+    """
+    Retrieves all finished videos for a student from the database.
+    """
+    try:
+        data = await request.json()
+        student_name = data.get('student_name')
+
+        if not student_name:
+            return JSONResponse({
+                'status': 'error',
+                'message': 'student_name is required'
+            }, status_code=400)
+        
+        db_handler = DBHandler()
+        finished_videos = db_handler.fetch_finished_videos(student_name)
+
+        return JSONResponse({
+            'status': 'success',
+            'message': 'Finished videos fetched successfully',
+            'data': finished_videos
+        }, status_code=200)
+    
+    except Exception as e:
+        return JSONResponse({
+            'status': 'error',
+            'message': str(e)
+        }, status_code=500)
 
 if __name__ == "__main__":
 
-    app.run(debug=True) 
+    uvicorn.run("main:app", host="127.0.0.1", port=5000, reload=True)

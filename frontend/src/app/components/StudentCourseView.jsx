@@ -51,6 +51,23 @@ export default function StudentCourseView({ videoId, userName }) {
     setExpandedChapterId(prev => prev === chapterId ? null : chapterId);
   }, [videoSeekTo]);
 
+  // Helper function to format timestamp
+  const formatTimestamp = (timestamp) => {
+    if (typeof timestamp === 'number') {
+      const minutes = Math.floor(timestamp / 60);
+      const seconds = Math.floor(timestamp % 60);
+      return `${minutes}:${seconds.toString().padStart(2, '0')}`;
+    }
+    return timestamp;
+  };
+
+  // Handle transcript timestamp click
+  const handleTranscriptTimestampClick = useCallback((timestamp) => {
+    if (videoSeekTo && typeof timestamp === 'number') {
+      videoSeekTo(timestamp);
+    }
+  }, [videoSeekTo]);
+
   const handleReactionClick = async (emoji, label) => {
     const newReaction = {
       id: Date.now(),
@@ -63,20 +80,28 @@ export default function StudentCourseView({ videoId, userName }) {
     
     setReactions(prev => [...prev, newReaction]);
     
-    await saveReaction(newReaction);
+    // Save reaction first, then show animation
+    const saveSuccess = await saveReaction(newReaction);
     
-    const reactionElement = document.getElementById(`reaction-${emoji}`);
-    if (reactionElement) {
-      reactionElement.classList.add('scale-125', 'bg-green-100');
-      setTimeout(() => {
-        reactionElement.classList.remove('scale-125', 'bg-green-100');
-      }, 300);
+    if (saveSuccess) {
+      const reactionElement = document.getElementById(`reaction-${emoji}`);
+      if (reactionElement) {
+        reactionElement.classList.add('scale-125', 'bg-green-100');
+        setTimeout(() => {
+          reactionElement.classList.remove('scale-125', 'bg-green-100');
+        }, 300);
+      }
+    } else {
+      // If save failed, remove the reaction from state
+      setReactions(prev => prev.filter(r => r.id !== newReaction.id));
+      console.error('Failed to save reaction');
     }
   };
 
   // Save reaction to backend
   const saveReaction = async (reaction) => {
     try {
+      console.log('Saving reaction:', reaction);
       
       const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/save_student_reaction`, {
         method: 'POST',
@@ -85,7 +110,6 @@ export default function StudentCourseView({ videoId, userName }) {
         },
         body: JSON.stringify({
           video_id: videoId,
-          student_name: userName,
           reaction: {
             emoji: reaction.emoji,
             label: reaction.label,
@@ -96,11 +120,17 @@ export default function StudentCourseView({ videoId, userName }) {
         })
       });
 
-      if (!response.ok) {
-        console.error('Failed to save reaction');
+      if (response.ok) {
+        const result = await response.json();
+        console.log('Reaction saved successfully:', result);
+        return true;
+      } else {
+        console.error('Failed to save reaction:', response.status, response.statusText);
+        return false;
       }
     } catch (error) {
       console.error('Error saving reaction:', error);
+      return false;
     }
   };
 
@@ -252,7 +282,7 @@ export default function StudentCourseView({ videoId, userName }) {
             <button
               id="reaction-😊"
               onClick={() => handleReactionClick('😊', 'Happy')}
-              className="flex flex-col items-center gap-1 p-3 rounded-lg hover:bg-gray-50 transition-all duration-200 transform hover:scale-105"
+              className="flex flex-col items-center gap-1 p-3 rounded-lg hover:bg-gray-50 transition-all duration-200"
               title="Happy - I understand this well"
             >
               <span className="text-2xl">😊</span>
@@ -262,7 +292,7 @@ export default function StudentCourseView({ videoId, userName }) {
             <button
               id="reaction-🤔"
               onClick={() => handleReactionClick('🤔', 'Confused')}
-              className="flex flex-col items-center gap-1 p-3 rounded-lg hover:bg-gray-50 transition-all duration-200 transform hover:scale-105"
+              className="flex flex-col items-center gap-1 p-3 rounded-lg hover:bg-gray-50 transition-all duration-200"
               title="Confused - I need clarification"
             >
               <span className="text-2xl">🤔</span>
@@ -272,7 +302,7 @@ export default function StudentCourseView({ videoId, userName }) {
             <button
               id="reaction-😮"
               onClick={() => handleReactionClick('😮', 'Surprised')}
-              className="flex flex-col items-center gap-1 p-3 rounded-lg hover:bg-gray-50 transition-all duration-200 transform hover:scale-105"
+              className="flex flex-col items-center gap-1 p-3 rounded-lg hover:bg-gray-50 transition-all duration-200"
               title="Surprised - This is unexpected"
             >
               <span className="text-2xl">😮</span>
@@ -282,7 +312,7 @@ export default function StudentCourseView({ videoId, userName }) {
             <button
               id="reaction-😴"
               onClick={() => handleReactionClick('😴', 'Bored')}
-              className="flex flex-col items-center gap-1 p-3 rounded-lg hover:bg-gray-50 transition-all duration-200 transform hover:scale-105"
+              className="flex flex-col items-center gap-1 p-3 rounded-lg hover:bg-gray-50 transition-all duration-200"
               title="Bored - This is too slow"
             >
               <span className="text-2xl">😴</span>
@@ -292,7 +322,7 @@ export default function StudentCourseView({ videoId, userName }) {
             <button
               id="reaction-🚀"
               onClick={() => handleReactionClick('🚀', 'Excited')}
-              className="flex flex-col items-center gap-1 p-3 rounded-lg hover:bg-gray-50 transition-all duration-200 transform hover:scale-105"
+              className="flex flex-col items-center gap-1 p-3 rounded-lg hover:bg-gray-50 transition-all duration-200"
               title="Excited - This is interesting"
             >
               <span className="text-2xl">🚀</span>
@@ -302,7 +332,7 @@ export default function StudentCourseView({ videoId, userName }) {
             <button
               id="reaction-💡"
               onClick={() => handleReactionClick('💡', 'Lightbulb')}
-              className="flex flex-col items-center gap-1 p-3 rounded-lg hover:bg-gray-50 transition-all duration-200 transform hover:scale-105"
+              className="flex flex-col items-center gap-1 p-3 rounded-lg hover:bg-gray-50 transition-all duration-200"
               title="Lightbulb - I just understood something"
             >
               <span className="text-2xl">💡</span>
@@ -732,6 +762,17 @@ export default function StudentCourseView({ videoId, userName }) {
               <p className="text-gray-600">Student Course View</p>
             </div>
           </div>
+          
+          {/* Done Button */}
+          <button
+            onClick={() => router.push(`/dashboard/progress/${videoId}`)}
+            className="px-6 py-3 bg-gradient-to-r from-blue-600 to-indigo-600 text-white rounded-lg hover:from-blue-700 hover:to-indigo-700 transition-all duration-200 transform hover:scale-[1.02] hover:shadow-lg font-medium flex items-center gap-2"
+          >
+            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+            </svg>
+            Submit Assignment
+          </button>
         </div>
       </div>
 
@@ -801,6 +842,72 @@ export default function StudentCourseView({ videoId, userName }) {
               )}
             </div>
           )}
+
+          {/* Transcript Section */}
+          {courseMetadata?.transcript && (
+            <div className="bg-white rounded-2xl shadow-lg p-6 mb-6">
+              <div className="flex items-center justify-between mb-4">
+                <h2 className="text-xl font-bold text-gray-800">Transcript</h2>
+                <div className="flex items-center gap-2 text-sm text-gray-600">
+                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                  </svg>
+                  <span>Full transcript with timestamps</span>
+                </div>
+              </div>
+              
+              <div className="bg-gray-50 rounded-lg p-4 max-h-96 overflow-y-auto transcript-container">
+                <div className="space-y-3">
+                  {Array.isArray(courseMetadata.transcript) ? (
+                    // If transcript is an array of segments
+                    courseMetadata.transcript.map((segment, index) => (
+                      <div key={index} className="flex gap-3 p-2 hover:bg-gray-100 rounded transition-colors">
+                        {segment.timestamp && (
+                          <button
+                            onClick={() => handleTranscriptTimestampClick(segment.timestamp)}
+                            className="text-sm text-blue-600 font-mono whitespace-nowrap hover:text-blue-800 hover:underline cursor-pointer"
+                          >
+                            {formatTimestamp(segment.timestamp)}
+                          </button>
+                        )}
+                        <p className="text-gray-700 flex-1">
+                          {segment.text || segment.content || segment}
+                        </p>
+                      </div>
+                    ))
+                  ) : (
+                    // If transcript is a string, split by lines or paragraphs
+                    typeof courseMetadata.transcript === 'string' && (
+                      <div className="text-gray-700 leading-relaxed whitespace-pre-wrap">
+                        {courseMetadata.transcript}
+                      </div>
+                    )
+                  )}
+                </div>
+              </div>
+              
+              <div className="mt-4 flex items-center justify-between text-sm text-gray-600">
+                <div className="flex items-center gap-2">
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                  </svg>
+                  <span>Click on timestamps to jump to specific parts of the video</span>
+                </div>
+                <button
+                  onClick={() => {
+                    const transcriptElement = document.querySelector('.transcript-container');
+                    if (transcriptElement) {
+                      transcriptElement.classList.toggle('max-h-96');
+                      transcriptElement.classList.toggle('max-h-none');
+                    }
+                  }}
+                  className="text-blue-600 hover:text-blue-700 font-medium"
+                >
+                  Show more
+                </button>
+              </div>
+            </div>
+          )}
         </main>
 
         {/* Right Sidebar - Chapters */}
@@ -841,7 +948,7 @@ export default function StudentCourseView({ videoId, userName }) {
                       <div 
                         className="bg-gradient-to-r from-blue-500 to-green-500 h-2 rounded-full transition-all duration-500"
                         style={{ 
-                          width: `${(completedQuizzes.size / new Set(courseMetadata.quiz_questions.map(q => q.chapter_id)).size) * 100}%` 
+                          width: `${(completedQuizzes.size / new Set(courseMetadata.quiz_questions.map(q => q.chapter_id)).size) * 100}%`
                         }}
                       ></div>
                     </div>

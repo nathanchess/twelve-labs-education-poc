@@ -123,3 +123,62 @@ class TranscriptSchema(pydantic.BaseModel):
     
 Response must be in JSON format. Do not include any preamble or postamble.
 """
+
+study_recommendations_prompt = """
+Here is a lecture video transcript and chapter deconstructed:
+1. Transcript: {transcript}
+2. Chapters: {chapters}
+
+Generate study recommendations based on the following questions and the ones student got wrong:
+1. Quiz Questions: {quiz_questions}
+2. Wrong Answers: {wrong_answers}
+
+Give a maximum of 3 study recommendations.
+
+Ensure it follows the following data schema:
+
+class StudyRecommendation(pydantic.BaseModel):
+    priority: str
+    time_to_review: str
+    recommendation_title: str
+    recommendation_description: str
+    recommended_chapters: list[int]
+
+class StudyRecommendationsSchema(pydantic.BaseModel):
+    study_recommendations: list[StudyRecommendation]
+
+Response must be in JSON format. Do not include any preamble or postamble.
+"""
+
+concept_mastery_prompt = """
+Here is a lecture video transcript and chapter deconstructed:
+1. Transcript: {transcript}
+2. Chapters: {chapters}
+
+Generate study recommendations based on the following questions and the ones student got wrong:
+1. Quiz Questions: {quiz_questions}
+2. Wrong Answers: {wrong_answers}
+
+Give details on the student's mastery of the concepts. Concepts should be high level concepts that are being discussed in the video.
+Please focus on the transcript and the chapters to generate the concept mastery.
+You are not confined to information in the transcript and chapters. You can use your own knowledge to generate the concept mastery.
+
+The mastery level should be a number between 0 and 100. 0 being the lowest and 100 being the highest. Based on the student's wrong answers, give a mastery level for each concept.
+
+Give a maximum of 3 concepts.
+
+Ex. Talking about it's importance in industry, it's applications, etc.
+
+Ensure it follows the following data schema:
+
+class ConceptMastery(pydantic.BaseModel):
+    concept: str
+    mastery_level: int
+    chapter_title: str
+    reasoning: str
+
+class ConceptMasterySchema(pydantic.BaseModel):
+    concept_mastery: list[ConceptMastery]
+
+Response must be in JSON format. Do not include any preamble or postamble.
+"""

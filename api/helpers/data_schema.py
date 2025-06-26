@@ -57,4 +57,23 @@ class EngagementListSchema(pydantic.BaseModel):
 class TranscriptSchema(pydantic.BaseModel):
     transcript: str
     
+class StudyRecommendation(pydantic.BaseModel):
+    priority: str
+    time_to_review: str
+    recommendation_title: str
+    recommendation_description: str
+    recommended_chapters: list[int]
+
+class StudyRecommendationsSchema(pydantic.BaseModel):
+    study_recommendations: list[StudyRecommendation]
+
+class ConceptMastery(pydantic.BaseModel):
+    concept: str
+    mastery_level: int
+    chapter_title: str
+    reasoning: str
+
+class ConceptMasterySchema(pydantic.BaseModel):
+    concept_mastery: list[ConceptMastery]
+
 __all__ = ['SummarySchema', 'PacingRecommendationsSchema', 'KeyTakeawaysSchema', 'ChaptersSchema', 'QuizQuestionsSchema', 'FlashcardsSchema', 'EngagementSchema', 'EngagementListSchema']

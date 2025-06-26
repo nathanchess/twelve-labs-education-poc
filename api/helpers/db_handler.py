@@ -122,11 +122,6 @@ class DBHandler:
             response = table.scan()
             items = response.get('Items', [])
 
-            # Continue scanning if there are more items
-            while 'LastEvaluatedKey' in response:
-                response = table.scan(ExclusiveStartKey=response['LastEvaluatedKey'])
-                items.extend(response.get('Items', []))
-
             logger.info(f"Retrieved {len(items)} published courses from DynamoDB")
 
             return items
@@ -272,5 +267,180 @@ class DBHandler:
             import traceback
             logger.error(f"Full traceback: {traceback.format_exc()}")
             raise Exception(f"Error saving wrong answer: {str(e)}")
+        
+    def get_student_profile(self, student_name: str):
+        """
+        Retrieves a student's profile from DynamoDB.
+        """
+        try:
+            table_name = os.getenv('DYNAMODB_CONTENT_USER_NAME')
+            
+            if not table_name:
+                raise Exception("DYNAMODB_CONTENT_USER_NAME environment variable not set")
+            
+            table = self.dynamodb.Table(table_name)
+            
+            response = table.get_item(Key={'student_name': student_name})
+            item = response.get('Item', {})
+
+            if not item:
+                raise ValueError(f"No student profile found for student name: {student_name}")
+            
+            return item
+        
+        except Exception as e:
+            logger.error(f"=== Error in get_student_profile: {str(e)} ===")
+            raise e
+        
+    async def save_student_progress_report(self, student_name: str, video_id: str, progress_report: dict):
+        """
+        Saves a student's progress report to DynamoDB.
+        """
+        try:
+            table_name = os.getenv('DYNAMODB_CONTENT_USER_NAME')
+            
+            if not table_name:
+                raise Exception("DYNAMODB_CONTENT_USER_NAME environment variable not set")
+            
+            table = self.dynamodb.Table(table_name)
+            
+            response = table.update_item(
+                Key={'student_name': student_name},
+                UpdateExpression='SET #progress_report_id = :progress_report',
+                ExpressionAttributeValues={
+                    ':progress_report': progress_report
+                },
+                ExpressionAttributeNames={
+                    '#progress_report_id': video_id + "_progress_report"
+                }
+            )
+
+            logger.info(f"Successfully saved student progress report for video ID: {video_id}")
+            return response
+        
+        except Exception as e:
+            logger.error(f"=== Error in save_student_progress_report: {str(e)} ===")
+            raise e
+
+    def convert_progress_report_data_types(self, progress_report):
+        """
+        Converts progress report data from strings back to appropriate data types.
+        """
+        if not progress_report:
+            return progress_report
+            
+        try:
+            # Create a copy to avoid modifying the original
+            converted_report = progress_report.copy()
+            
+            # Convert concept mastery data
+            if 'concept_mastery' in converted_report and 'concept_mastery' in converted_report['concept_mastery']:
+                for concept in converted_report['concept_mastery']['concept_mastery']:
+                    if 'mastery_level' in concept and isinstance(concept['mastery_level'], str):
+                        try:
+                            concept['mastery_level'] = int(concept['mastery_level'])
+                        except (ValueError, TypeError):
+                            # If conversion fails, keep as string but log
+                            print(f"Could not convert mastery_level '{concept['mastery_level']}' to int")
+            
+            # Convert accuracy if it's a string
+            if 'accuracy' in converted_report and isinstance(converted_report['accuracy'], str):
+                try:
+                    converted_report['accuracy'] = float(converted_report['accuracy'])
+                except (ValueError, TypeError):
+                    print(f"Could not convert accuracy '{converted_report['accuracy']}' to float")
+            
+            # Convert total_questions if it's a string
+            if 'total_questions' in converted_report and isinstance(converted_report['total_questions'], str):
+                try:
+                    converted_report['total_questions'] = int(converted_report['total_questions'])
+                except (ValueError, TypeError):
+                    print(f"Could not convert total_questions '{converted_report['total_questions']}' to int")
+            
+            print("Progress report data types converted successfully")
+            return converted_report
+            
+        except Exception as e:
+            print(f"Error converting progress report data types: {e}")
+            return progress_report
+
+    def fetch_student_progress_report(self, student_name: str, video_id: str):
+        """
+        Fetches a student's progress report from DynamoDB.
+        """
+        try:
+            table_name = os.getenv('DYNAMODB_CONTENT_USER_NAME')
+            
+            if not table_name:
+                raise Exception("DYNAMODB_CONTENT_USER_NAME environment variable not set")
+            
+            table = self.dynamodb.Table(table_name)
+            
+            print(f"Searching for student: '{student_name}' and video_id: '{video_id}'")
+            
+            response = table.get_item(Key={'student_name': student_name})
+            item = response.get('Item', {})
+
+            # Check if the student item exists first
+            if not item:
+                print(f"No student profile found for student name: {student_name}")
+                return None
+
+            print(f"Found student profile for: {student_name}")
+            print(f"Available keys in student profile: {list(item.keys())}")
+
+            progress_report_key = video_id + "_progress_report"
+            print(f'Looking for progress report with key: "{progress_report_key}"')
+            
+            progress_report = item.get(progress_report_key, None)
+            print(f"Progress report value: {progress_report}")
+
+            # Check if the specific progress report exists
+            if not progress_report:
+                print(f"No progress report found for video_id: {video_id} and student: {student_name}")
+                print(f"Available progress report keys: {[key for key in item.keys() if key.endswith('_progress_report')]}")
+                
+                # Let's also check if there are any keys that contain the video_id
+                matching_keys = [key for key in item.keys() if video_id in key]
+                print(f"Keys containing video_id '{video_id}': {matching_keys}")
+                
+                return None
+            
+            print(f"Found progress report for {student_name} and {video_id}")
+            
+            # Convert data types before returning
+            converted_progress_report = self.convert_progress_report_data_types(progress_report)
+            return converted_progress_report
+        
+        except Exception as e:
+            logger.error(f"=== Error in fetch_student_progress_report: {str(e)} ===")
+            raise e
+        
+    def fetch_finished_videos(self, student_name: str):
+        """
+        Fetches all finished videos for a student from DynamoDB.
+        """
+        try:
+            table_name = os.getenv('DYNAMODB_CONTENT_USER_NAME')
+            
+            if not table_name:
+                raise Exception("DYNAMODB_CONTENT_USER_NAME environment variable not set")
+            
+            table = self.dynamodb.Table(table_name)
+            
+            response = table.get_item(Key={'student_name': student_name})
+            item = response.get('Item', {})
+
+            finished_videos = []
+
+            for key, value in item.items():
+                if key.endswith('_progress_report'):
+                    finished_videos.append(key.replace('_progress_report', ''))
+
+            return finished_videos
+        
+        except Exception as e:
+            logger.error(f"=== Error in fetch_finished_videos: {str(e)} ===")
+            raise e
 
 __all__ = ['DBHandler']
