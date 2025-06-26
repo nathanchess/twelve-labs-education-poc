@@ -2,20 +2,22 @@ from providers import TwelveLabsHandler
 from helpers import DBHandler
 from helpers.reasoning import LectureBuilderAgent, EvaluationAgent
 
-from decimal import Decimal
 import json
 import asyncio
 import logging
 import uvicorn
+
+from decimal import Decimal
 from starlette.middleware.cors import CORSMiddleware
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, Request, Depends, HTTPException
 from fastapi.responses import JSONResponse, StreamingResponse
+from pydantic import BaseModel
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
+# Initialize FastAPI app
 app = FastAPI()
-
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],  # Allow all origins for development
@@ -76,8 +78,31 @@ def convert_for_dynamodb(data) -> any:
     
     return recursive_convert(data)
 
+# Dependency Models
+class VideoIdRequest(BaseModel):
+    twelve_labs_video_id: str
+
+async def get_video_id_from_request(request: Request, body: VideoIdRequest | None = None):
+
+    """
+    Extracts the video ID from the request body or query parameters.
+    """
+
+    if request.method == 'GET':
+        return request.query_params.get('video_id')
+    elif request.method == 'POST':
+        video_id = body.twelve_labs_video_id
+    else:
+        raise HTTPException(status_code=405, detail="Method not allowed")
+    
+    if not video_id:
+        raise HTTPException(status_code=400, detail="video_id is required")
+    
+    return video_id
+
+
 @app.post('/upload_video')
-async def upload_video(request: Request):
+async def upload_video(twelve_labs_video_id: str = Depends(get_video_id_from_request)):
 
     """
     
@@ -88,24 +113,7 @@ async def upload_video(request: Request):
     """
     
     try:
-        data = await request.json()
-
-        if not data:
-            return JSONResponse({
-                'status': 'error',
-                'message': 'No JSON data received'
-            }, status_code=400)
-
         db_handler = DBHandler()
-        
-        twelve_labs_video_id = data.get('twelve_labs_video_id')
-        
-        if not twelve_labs_video_id:
-            return JSONResponse({
-                'status': 'error',
-                'message': 'twelve_labs_video_id is required'
-            }, status_code=400)
-
         result = db_handler.upload_video_ids(twelve_labs_video_id=twelve_labs_video_id)
         
     except Exception as e:
@@ -121,7 +129,7 @@ async def upload_video(request: Request):
     }, status_code=200)
 
 @app.post('/cached_analysis')
-async def cached_analysis(request: Request):
+async def cached_analysis(twelve_labs_video_id: str = Depends(get_video_id_from_request)):
     
     """
     Returns cached analysis for each given provider for common queries.
@@ -133,14 +141,6 @@ async def cached_analysis(request: Request):
     """
     
     try:
-        data = await request.json()
-        twelve_labs_video_id = data.get('twelve_labs_video_id')
-
-        if not twelve_labs_video_id:
-            return JSONResponse({
-                'statusCode': 400,
-                'message': 'twelve_labs_video_id is required'
-            }, status_code=400)
 
         twelvelabs_provider = TwelveLabsHandler(twelve_labs_video_id=twelve_labs_video_id)
         gist_result = twelvelabs_provider.generate_gist()
@@ -162,7 +162,7 @@ async def cached_analysis(request: Request):
 
 @app.get('/run_analysis')
 @app.post('/run_analysis')
-async def run_analysis(request: Request):
+async def run_analysis(twelve_labs_video_id: str = Depends(get_video_id_from_request)):
 
     """
     
@@ -177,19 +177,6 @@ async def run_analysis(request: Request):
     """
 
     try:
-        # Handle both GET and POST requests
-        if request.method == 'GET':
-            twelve_labs_video_id = request.query_params.get('video_id')
-        else:  # POST
-            data = await request.json()
-            twelve_labs_video_id = data.get('twelve_labs_video_id')
-
-        if not twelve_labs_video_id:
-            return JSONResponse({
-                'status': 'error',
-                'type': 'student_lecture_analysis',
-                'message': 'video_id/twelve_labs_video_id is required'
-            }, status_code=400)
 
         twelvelabs_provider = TwelveLabsHandler(twelve_labs_video_id=twelve_labs_video_id)
 
@@ -240,7 +227,7 @@ async def run_analysis(request: Request):
 @app.get('/generate_chapters')
 @app.post('/generate_chapters')
 #@cross_origin()
-async def generate_chapters(request: Request):
+async def generate_chapters(twelve_labs_video_id: str = Depends(get_video_id_from_request)):
     
     """
     Generates chapters for a video.
@@ -255,19 +242,6 @@ async def generate_chapters(request: Request):
     logger.info('Generating chapters')
 
     try:
-
-        if request.method == 'GET':
-            twelve_labs_video_id = request.query_params.get('video_id')
-        else:
-            data = await request.json()
-            twelve_labs_video_id = data.get('twelve_labs_video_id')
-
-        if not twelve_labs_video_id:
-            return {
-                'status': 'error',
-                'type': 'chapters',
-                'message': 'twelve_labs_video_id is required'
-            }
         
         twelvelabs_provider = TwelveLabsHandler(twelve_labs_video_id=twelve_labs_video_id)
         chapters = await twelvelabs_provider.generate_chapters()
@@ -292,7 +266,7 @@ async def generate_chapters(request: Request):
 @app.get('/generate_pacing_recommendations')
 @app.post('/generate_pacing_recommendations')
 #@cross_origin()
-async def generate_pacing_recommendations(request: Request):
+async def generate_pacing_recommendations(twelve_labs_video_id: str = Depends(get_video_id_from_request)):
 
     """
     Generates pacing recommendations for a video.
@@ -301,19 +275,6 @@ async def generate_pacing_recommendations(request: Request):
     logger.info('Generating pacing recommendations')
 
     try:
-
-        if request.method == 'GET':
-            twelve_labs_video_id = request.query_params.get('video_id')
-        else:
-            data = await request.json()
-            twelve_labs_video_id = data.get('twelve_labs_video_id')
-
-        if not twelve_labs_video_id:
-            return {
-                'status': 'error',
-                'type': 'pacing_recommendations',
-                'message': 'twelve_labs_video_id is required'
-            }
 
         twelvelabs_provider = TwelveLabsHandler(twelve_labs_video_id=twelve_labs_video_id)
 
@@ -339,7 +300,7 @@ async def generate_pacing_recommendations(request: Request):
 @app.get('/generate_key_takeaways')
 @app.post('/generate_key_takeaways')
 #@cross_origin()
-async def generate_key_takeaways(request: Request):
+async def generate_key_takeaways(twelve_labs_video_id: str = Depends(get_video_id_from_request)):
 
     """
     Generates key takeaways for a video.
@@ -348,23 +309,8 @@ async def generate_key_takeaways(request: Request):
     logger.info('Generating key takeaways')
 
     try:
-
-        if request.method == 'GET':
-            twelve_labs_video_id = request.query_params.get('video_id')
-        else:
-            data = await request.json()
-            twelve_labs_video_id = data.get('twelve_labs_video_id')
-
-        if not twelve_labs_video_id:
-            return {
-                'status': 'error',
-                'type': 'key_takeaways',
-                'message': 'twelve_labs_video_id is required'
-            }
         
-
         twelvelabs_provider = TwelveLabsHandler(twelve_labs_video_id=twelve_labs_video_id)
-
         key_takeaways = await twelvelabs_provider.generate_key_takeaways()
 
         return {
@@ -443,7 +389,7 @@ async def generate_quiz_questions(request: Request):
 @app.get('/generate_engagement')
 @app.post('/generate_engagement')
 #@cross_origin()
-async def generate_engagement(request: Request):
+async def generate_engagement(twelve_labs_video_id: str = Depends(get_video_id_from_request)):
     
     """
     Generates engagement for a video.
@@ -452,22 +398,8 @@ async def generate_engagement(request: Request):
     logger.info('Generating engagement')
     
     try:
-
-        if request.method == 'GET':
-            twelve_labs_video_id = request.query_params.get('video_id')
-        else:
-            data = await request.json()
-            twelve_labs_video_id = data.get('twelve_labs_video_id')
-
-        if not twelve_labs_video_id:
-            return {
-                'status': 'error',
-                'type': 'engagement',
-                'message': 'twelve_labs_video_id is required'
-            }
         
         twelvelabs_provider = TwelveLabsHandler(twelve_labs_video_id=twelve_labs_video_id)
-
         engagement = await twelvelabs_provider.generate_engagement()
 
         return {
@@ -484,53 +416,6 @@ async def generate_engagement(request: Request):
         return {
             'status': 'error',
             'type': 'engagement',
-            'message': str(e)
-        }
-    
-@app.get('/generate_multimodal_transcript')
-@app.post('/generate_multimodal_transcript')
-#@cross_origin()
-async def generate_multimodal_transcript(request: Request):
-
-    """
-    Generates a multimodal transcript of a video.
-    """
-
-    logger.info('Generating multimodal transcript')
-
-    try:
-
-        if request.method == 'GET':
-            twelve_labs_video_id = request.query_params.get('video_id')
-        else:
-            data = await request.json()
-            twelve_labs_video_id = data.get('twelve_labs_video_id')
-
-        if not twelve_labs_video_id:
-            return {
-                'status': 'error',
-                'type': 'multimodal_transcript',
-                'message': 'twelve_labs_video_id is required'
-            }
-        
-        twelvelabs_provider = TwelveLabsHandler(twelve_labs_video_id=twelve_labs_video_id)
-
-        transcript = await twelvelabs_provider.generate_multimodal_transcript()
-
-        return {
-            'status': 'success',
-            'type': 'multimodal_transcript',
-            'message': 'Multimodal transcript generated successfully',
-            'data': transcript
-        }
-    
-    except Exception as e:
-        
-        print(f"Error in generate_multimodal_transcript endpoint: {e}")
-        
-        return {
-            'status': 'error',
-            'type': 'multimodal_transcript',
             'message': str(e)
         }
 
@@ -624,7 +509,7 @@ async def get_published_courses(request: Request):
     
 @app.get('/fetch_course_metadata')
 @app.post('/fetch_course_metadata')
-async def fetch_course_metadata(request: Request):
+async def fetch_course_metadata(twelve_labs_video_id: str = Depends(get_video_id_from_request)):
 
     """
     Fetches course metadata for a given video ID from the database.
@@ -632,17 +517,8 @@ async def fetch_course_metadata(request: Request):
 
     try:
 
-        data = await request.json()
-        video_id = data.get('video_id')
-
-        if not video_id:
-            return JSONResponse({
-                'status': 'error',
-                'message': 'video_id is required'
-            }, status_code=400)
-        
         db_handler = DBHandler()
-        course_metadata = db_handler.fetch_course_metadata(video_id=video_id)
+        course_metadata = db_handler.fetch_course_metadata(video_id=twelve_labs_video_id)
 
         course_metadata = convert_decimals_for_json(course_metadata)
 
@@ -703,30 +579,16 @@ async def save_student_reaction(request: Request):
         }, status_code=500)
 
 @app.post('/get_student_reactions')
-async def get_student_reactions(request: Request):
+async def get_student_reactions(twelve_labs_video_id: str = Depends(get_video_id_from_request)):
     """
 
     Retrieves student reactions for a given video ID from the database.
 
     """
     try:
-        data = await request.json()
-        video_id = data.get('video_id')
-
-        if not data:
-            return JSONResponse({
-                'status': 'error',
-                'message': 'No JSON data received'
-            }, status_code=400)
-        
-        if not video_id:
-            return JSONResponse({
-                'status': 'error',
-                'message': 'video_id is required'
-            }, status_code=400)
         
         db_handler = DBHandler()
-        reactions = db_handler.get_student_reactions(video_id)
+        reactions = db_handler.get_student_reactions(twelve_labs_video_id)
 
         reactions = convert_decimals_for_json(reactions)
         
@@ -907,7 +769,7 @@ async def get_finished_videos(request: Request):
         }, status_code=500)
     
 @app.post('/generate_course_analysis')
-async def generate_course_analysis(request: Request):
+async def generate_course_analysis(twelve_labs_video_id: str = Depends(get_video_id_from_request)):
     
     """
     
@@ -917,18 +779,9 @@ async def generate_course_analysis(request: Request):
 
     try:
         
-        data = await request.json()
-        video_id = data.get('video_id')
-        
-        if not video_id:
-            return JSONResponse({
-                'status': 'error',
-                'message': 'video_id is required'
-            }, status_code=400)
-        
         db_handler = DBHandler()
-        student_data = db_handler.fetch_student_data_from_course(video_id)
-        video_metadata = db_handler.fetch_course_metadata(video_id)
+        student_data = db_handler.fetch_student_data_from_course(twelve_labs_video_id)
+        video_metadata = db_handler.fetch_course_metadata(twelve_labs_video_id)
 
         if not student_data:
             return JSONResponse({
@@ -971,7 +824,7 @@ async def generate_course_analysis(request: Request):
         }, status_code=500)
 
 @app.post('/fetch_student_data_from_course')
-async def fetch_student_data_from_course(request: Request):
+async def fetch_student_data_from_course(twelve_labs_video_id: str = Depends(get_video_id_from_request)):
     
     """
     
@@ -981,17 +834,8 @@ async def fetch_student_data_from_course(request: Request):
     
     try:
 
-        data = await request.json()
-        video_id = data.get('video_id')
-
-        if not video_id:
-            return JSONResponse({
-                'status': 'error',
-                'message': 'video_id is required'
-            }, status_code=400)
-        
         db_handler = DBHandler()
-        student_data = db_handler.fetch_student_data_from_course(video_id)
+        student_data = db_handler.fetch_student_data_from_course(twelve_labs_video_id)
 
         student_data = convert_decimals_for_json(student_data)
 

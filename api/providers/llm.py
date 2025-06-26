@@ -27,9 +27,5 @@ class LLMProvider(ABC):
         pass
     
     @abstractmethod
-    def generate_multimodal_transcript(self):
-        pass
-    
-    @abstractmethod
     def generate_gist(self):
         pass
