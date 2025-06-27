@@ -94,5 +94,10 @@ class CourseAnalysisSchema(pydantic.BaseModel):
     next_steps: str
     content_engagement: list[ContentEngagement]
 
+class GistSchema(pydantic.BaseModel):
+    title: str
+    hashtags: list[str]
+    topics: list[str]
 
-__all__ = ['SummarySchema', 'PacingRecommendationsSchema', 'KeyTakeawaysSchema', 'ChaptersSchema', 'QuizQuestionsSchema', 'FlashcardsSchema', 'EngagementSchema', 'EngagementListSchema']
+
+__all__ = ['TranscriptSchema', 'GistSchema', 'SummarySchema', 'PacingRecommendationsSchema', 'KeyTakeawaysSchema', 'ChaptersSchema', 'QuizQuestionsSchema', 'FlashcardsSchema', 'EngagementSchema', 'EngagementListSchema']

@@ -1,5 +1,12 @@
 summary_prompt = """
 Summarize the video in less than 5 sentences. Listen to the audio and summarize the video in a way that is helpful for a student to understand the topic being discussed.
+
+Ensure it follows the following data schema:
+
+class SummarySchema(pydantic.BaseModel):
+    summary: str
+
+Response must be in JSON format. Do not include any preamble or postamble.
 """
 
 key_takeaways_prompt = """
@@ -10,6 +17,8 @@ Ensure it follows the following data schema:
 
 class KeyTakeawaysSchema(pydantic.BaseModel):
     key_takeaways: list[str]
+
+Response must be in JSON format. Do not include any preamble or postamble.
 """
 
 pacing_recommendations_prompt = """
@@ -29,6 +38,7 @@ class PacingRecommendation(pydantic.BaseModel):
 class PacingRecommendationsSchema(pydantic.BaseModel):
     recommendations: list[PacingRecommendation]
 
+Response must be in JSON format. Do not include any preamble or postamble.
 """
 
 chapter_prompt = """
@@ -57,7 +67,7 @@ quiz_questions_prompt = """
 Generate quiz questions for the video. It should be a list of quiz questions that are helpful for a student to understand the topic being discussed.
 
 Here are the chapters of the video:
-{}
+{chapters}
 
 Please give at maximum 3 quiz questions per chapter. You may give less than 3 questions per chapter if the chapter is short. Make sure it is not just a random question, but one that is educational and helps the student understand the topic being discussed.
 
@@ -211,6 +221,20 @@ class CourseAnalysisSchema(pydantic.BaseModel):
     challenging_concepts: list[str]
     next_steps: str
     content_engagement: list[ContentEngagement]
+
+Response must be in JSON format. Do not include any preamble or postamble.
+"""
+
+gist_prompt = """
+Generate a gist of the video. It should be a list of topics, hashtags, and title.
+
+Ensure it follows the following data schema which is a JSON object:
+
+{
+    title: str
+    hashtags: list[str]
+    topics: list[str]
+}
 
 Response must be in JSON format. Do not include any preamble or postamble.
 """

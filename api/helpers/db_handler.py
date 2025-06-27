@@ -40,7 +40,6 @@ class DBHandler:
             table = self.dynamodb.Table(table_name)
             logger.info("DynamoDB table reference obtained")
 
-            # Fix: The Item should be a simple dictionary, not nested with type annotations
             item = {
                 'video_id': twelve_labs_video_id,
                 's3_key': s3_key,
@@ -62,7 +61,36 @@ class DBHandler:
             logger.error(f"Full traceback: {traceback.format_exc()}")
             raise Exception(f"Error uploading video IDs: {str(e)}")
         
-    def upload_course_metadata(self, video_id: str, title: str, chapters: list, quiz_questions: list, key_takeaways: list, pacing_recommendations: list, summary: str, engagement: list, transcript: str):
+    def fetch_video_ids(self, video_id: str):
+
+        """
+        
+        Fetches video IDs from DynamoDB.
+        
+        """
+
+        try:
+
+            table_name = os.getenv('DYNAMODB_CONTENT_TABLE_NAME')
+
+            if not table_name:
+                raise Exception("DYNAMODB_TABLE_NAME environment variable not set")
+            
+            table = self.dynamodb.Table(table_name)
+
+            response = table.get_item(Key={'video_id': video_id})
+            item = response.get('Item', {})
+
+            gemini_file_id = item.get('gemini_file_id', None)
+            s3_key = item.get('s3_key', None)
+
+            return gemini_file_id, s3_key
+        
+        except Exception as e:
+            logger.error(f"=== Error in fetch_video_ids: {str(e)} ===")
+            raise e
+        
+    def upload_course_metadata(self, video_id: str, title: str, chapters: list, quiz_questions: list, key_takeaways: list, pacing_recommendations: list, summary: str, engagement: list, transcript: str, gemini_file_id: str, s3_key: str):
         
         """
         
@@ -80,6 +108,8 @@ class DBHandler:
             table = self.dynamodb.Table(table_name)
             item = {
                 'video_id': video_id,
+                'gemini_file_id': gemini_file_id,
+                's3_key': s3_key,
                 'summary': summary,
                 'created_at': boto3.dynamodb.types.Decimal(str(int(time.time()))),
                 'title': title,

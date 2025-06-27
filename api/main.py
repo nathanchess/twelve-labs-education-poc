@@ -1,4 +1,4 @@
-from providers import TwelveLabsHandler
+from providers import TwelveLabsHandler, GoogleHandler, AWSHandler
 from helpers import DBHandler
 from helpers.reasoning import LectureBuilderAgent, EvaluationAgent
 
@@ -6,6 +6,7 @@ import json
 import asyncio
 import logging
 import uvicorn
+import time
 
 from decimal import Decimal
 from starlette.middleware.cors import CORSMiddleware
@@ -84,6 +85,10 @@ class VideoIdRequest(BaseModel):
     s3_key: str
     gemini_file_id: str
 
+class VideoIdRequestSingleProvider(BaseModel):
+    video_id: str
+    provider: str
+
 async def get_video_id_from_request(request: Request, body: VideoIdRequest | None = None):
 
     """
@@ -94,8 +99,10 @@ async def get_video_id_from_request(request: Request, body: VideoIdRequest | Non
         video_id = request.query_params.get('video_id')
         s3_key = request.query_params.get('s3_key')
         gemini_file_id = request.query_params.get('gemini_file_id')
-        return video_id, s3_key, gemini_file_id
+        return VideoIdRequest(twelve_labs_video_id=video_id, s3_key=s3_key, gemini_file_id=gemini_file_id)
     elif request.method == 'POST':
+        if not body:
+            raise HTTPException(status_code=400, detail="body is required")
         video_id = body.twelve_labs_video_id
         s3_key = body.s3_key
         gemini_file_id = body.gemini_file_id
@@ -105,11 +112,39 @@ async def get_video_id_from_request(request: Request, body: VideoIdRequest | Non
     if not video_id:
         raise HTTPException(status_code=400, detail="video_id is required")
     
-    return video_id
+    return VideoIdRequest(twelve_labs_video_id=video_id, s3_key=s3_key, gemini_file_id=gemini_file_id)
+
+async def get_video_id_from_request_single_provider(request: Request, body: VideoIdRequestSingleProvider | None = None):
+
+    if request.method == 'GET':
+        video_id = request.query_params.get('video_id')
+        provider = request.query_params.get('provider')
+    else:
+        raise HTTPException(status_code=405, detail="Method not allowed")
+
+    if not video_id:
+        raise HTTPException(status_code=400, detail="video_id is required")
+    
+    if not provider:
+        raise HTTPException(status_code=400, detail="provider is required")
+    
+    return VideoIdRequestSingleProvider(video_id=video_id, provider=provider)
+
+# Response Functions
+
+def success_response(data, duration, message, provider, type):
+    return JSONResponse({
+        'status': 'success',
+        'provider': provider,
+        'message': message,
+        'duration': duration,
+        'data': data,
+        'type': type,
+    }, status_code=200)
 
 
 @app.post('/upload_video')
-async def upload_video(twelve_labs_video_id: str = Depends(get_video_id_from_request), s3_key: str = Depends(get_video_id_from_request), gemini_file_id: str = Depends(get_video_id_from_request)):
+async def upload_video(video_params: VideoIdRequest = Depends(get_video_id_from_request)):
 
     """
     
@@ -121,10 +156,8 @@ async def upload_video(twelve_labs_video_id: str = Depends(get_video_id_from_req
     
     try:
         db_handler = DBHandler()
-        result = db_handler.upload_video_ids(twelve_labs_video_id=twelve_labs_video_id, s3_key=s3_key, gemini_file_id=gemini_file_id)
-        
+        db_handler.upload_video_ids(twelve_labs_video_id=video_params.twelve_labs_video_id, s3_key=video_params.s3_key, gemini_file_id=video_params.gemini_file_id)
     except Exception as e:
-        
         return JSONResponse({
             'status': 'error',
             'message': str(e)
@@ -135,8 +168,45 @@ async def upload_video(twelve_labs_video_id: str = Depends(get_video_id_from_req
         'message': 'Video uploaded successfully'
     }, status_code=200)
 
-@app.post('/cached_analysis')
-async def cached_analysis(twelve_labs_video_id: str = Depends(get_video_id_from_request)):
+@app.get('/fetch_video_ids')
+@app.post('/fetch_video_ids')
+async def fetch_video_ids(request: Request):
+
+    """
+    Fetches video IDs from the database given video_id (TwelveLabs Video ID)
+    """
+
+    if request.method == 'GET':
+        video_id = request.query_params.get('video_id')
+    elif request.method == 'POST':
+        data = await request.json()
+        video_id = data.get('video_id')
+    else:
+        raise HTTPException(status_code=405, detail="Method not allowed")
+    
+    if not video_id:
+        raise HTTPException(status_code=400, detail="video_id is required")
+
+    try:
+        db_handler = DBHandler()
+        gemini_file_id, s3_key = db_handler.fetch_video_ids(video_id)
+        return JSONResponse({
+            'status': 'success',
+            'message': 'Video IDs fetched successfully',
+            'data': {
+                'twelve_labs_video_id': video_id,
+                'gemini_file_id': gemini_file_id,
+                's3_key': s3_key
+            }
+        }, status_code=200)
+    except Exception as e:
+        return JSONResponse({
+            'status': 'error',
+            'message': str(e)
+        }, status_code=500)
+
+@app.get('/generate_gist')
+async def generate_gist(video_params: VideoIdRequestSingleProvider = Depends(get_video_id_from_request_single_provider)):
     
     """
     Returns cached analysis for each given provider for common queries.
@@ -146,19 +216,32 @@ async def cached_analysis(twelve_labs_video_id: str = Depends(get_video_id_from_
     3. AWS Nova:
     
     """
+
+    print(video_params)
+
+    video_id = video_params.video_id
+    provider = video_params.provider
     
     try:
 
-        twelvelabs_provider = TwelveLabsHandler(twelve_labs_video_id=twelve_labs_video_id)
-        gist_result = twelvelabs_provider.generate_gist()
+        start_time = time.time()
+        
+        if provider == 'twelvelabs':
+            twelvelabs_provider = TwelveLabsHandler(twelve_labs_video_id=video_id)
+            gist_result = await twelvelabs_provider.generate_gist()
+        elif provider == 'google':
+            google_provider = GoogleHandler(gemini_file_id=video_id)
+            gist_result = await google_provider.generate_gist()
+        elif provider == 'aws':
+            aws_provider = AWSHandler(s3_key=video_id)
+            gist_result = await aws_provider.generate_gist()
+        else:
+            raise HTTPException(status_code=400, detail="Invalid provider")
 
-        return JSONResponse({
-            'statusCode': 200,
-            'message': 'Cached analysis retrieved successfully',
-            'data': {
-                'twelve_labs': gist_result
-            }
-        }, status_code=200)
+        end_time = time.time()
+        duration = end_time - start_time
+
+        return success_response(gist_result, duration, 'Cached analysis retrieved successfully', provider, 'gist')
 
     except Exception as e:
 
@@ -167,11 +250,12 @@ async def cached_analysis(twelve_labs_video_id: str = Depends(get_video_id_from_
             'message': str(e)
         }, status_code=500)
 
+"""
 @app.get('/run_analysis')
 @app.post('/run_analysis')
 async def run_analysis(twelve_labs_video_id: str = Depends(get_video_id_from_request)):
 
-    """
+    
     
     Calls each provider's analysis function asynchronously. 
     Each provider will return a dictionary and upload respective metadata to DynamoDB.
@@ -181,7 +265,7 @@ async def run_analysis(twelve_labs_video_id: str = Depends(get_video_id_from_req
     - 'message': 'Analysis run successfully' or error message
     - 'data': dictionary with provider names as keys and their respective analysis results as values
     
-    """
+    
 
     try:
 
@@ -230,11 +314,10 @@ async def run_analysis(twelve_labs_video_id: str = Depends(get_video_id_from_req
             'status': 'error',
             'message': str(e)
         }, status_code=500)
+"""
 
 @app.get('/generate_chapters')
-@app.post('/generate_chapters')
-#@cross_origin()
-async def generate_chapters(twelve_labs_video_id: str = Depends(get_video_id_from_request)):
+async def generate_chapters(video_params: VideoIdRequestSingleProvider = Depends(get_video_id_from_request_single_provider)):
     
     """
     Generates chapters for a video.
@@ -246,19 +329,28 @@ async def generate_chapters(twelve_labs_video_id: str = Depends(get_video_id_fro
     
     """
 
+    video_id = video_params.video_id
+    provider = video_params.provider
+
     logger.info('Generating chapters')
 
     try:
-        
-        twelvelabs_provider = TwelveLabsHandler(twelve_labs_video_id=twelve_labs_video_id)
-        chapters = await twelvelabs_provider.generate_chapters()
 
-        return {
-            'status': 'success',
-            'type': 'chapters',
-            'message': 'Chapters generated successfully',
-            'data': chapters
-        }
+        start_time = time.time()
+        
+        if provider == 'twelvelabs':
+            twelvelabs_provider = TwelveLabsHandler(twelve_labs_video_id=video_id)
+            chapters = await twelvelabs_provider.generate_chapters()
+        elif provider == 'google':
+            google_provider = GoogleHandler(gemini_file_id=video_id)
+            chapters = await google_provider.generate_chapters()
+        elif provider == 'aws':
+            aws_provider = AWSHandler(s3_key=video_id)
+            chapters = await aws_provider.generate_chapters()
+        else:
+            raise HTTPException(status_code=400, detail="Invalid provider")
+
+        return success_response(chapters, time.time() - start_time, 'Chapters generated successfully', provider, 'chapters')
     
     except Exception as e:
 
@@ -271,28 +363,34 @@ async def generate_chapters(twelve_labs_video_id: str = Depends(get_video_id_fro
         }
     
 @app.get('/generate_pacing_recommendations')
-@app.post('/generate_pacing_recommendations')
-#@cross_origin()
-async def generate_pacing_recommendations(twelve_labs_video_id: str = Depends(get_video_id_from_request)):
+async def generate_pacing_recommendations(video_params: VideoIdRequestSingleProvider = Depends(get_video_id_from_request_single_provider)):
 
     """
     Generates pacing recommendations for a video.
     """
 
+    video_id = video_params.video_id
+    provider = video_params.provider
+
     logger.info('Generating pacing recommendations')
 
     try:
 
-        twelvelabs_provider = TwelveLabsHandler(twelve_labs_video_id=twelve_labs_video_id)
+        start_time = time.time()
 
-        pacing_recommendations = await twelvelabs_provider.generate_pacing_recommendations()
+        if provider == 'twelvelabs':
+            twelvelabs_provider = TwelveLabsHandler(twelve_labs_video_id=video_id)
+            pacing_recommendations = await twelvelabs_provider.generate_pacing_recommendations()
+        elif provider == 'google':
+            google_provider = GoogleHandler(gemini_file_id=video_id)
+            pacing_recommendations = await google_provider.generate_pacing_recommendations()
+        elif provider == 'aws':
+            aws_provider = AWSHandler(s3_key=video_id)
+            pacing_recommendations = await aws_provider.generate_pacing_recommendations()
+        else:
+            raise HTTPException(status_code=400, detail="Invalid provider")
 
-        return {
-            'status': 'success',
-            'type': 'pacing_recommendations',
-            'message': 'Pacing recommendations generated successfully',
-            'data': pacing_recommendations
-        }
+        return success_response(pacing_recommendations, time.time() - start_time, 'Pacing recommendations generated successfully', provider, 'pacing_recommendations')
     
     except Exception as e:
 
@@ -305,27 +403,34 @@ async def generate_pacing_recommendations(twelve_labs_video_id: str = Depends(ge
         }
     
 @app.get('/generate_key_takeaways')
-@app.post('/generate_key_takeaways')
-#@cross_origin()
-async def generate_key_takeaways(twelve_labs_video_id: str = Depends(get_video_id_from_request)):
+async def generate_key_takeaways(video_params: VideoIdRequestSingleProvider = Depends(get_video_id_from_request_single_provider)):
 
     """
     Generates key takeaways for a video.
     """
 
+    video_id = video_params.video_id
+    provider = video_params.provider
+
     logger.info('Generating key takeaways')
 
     try:
-        
-        twelvelabs_provider = TwelveLabsHandler(twelve_labs_video_id=twelve_labs_video_id)
-        key_takeaways = await twelvelabs_provider.generate_key_takeaways()
 
-        return {
-            'status': 'success',
-            'type': 'key_takeaways',
-            'message': 'Key takeaways generated successfully',
-            'data': key_takeaways
-        }
+        start_time = time.time()
+
+        if provider == 'twelvelabs':
+            twelvelabs_provider = TwelveLabsHandler(twelve_labs_video_id=video_id)
+            key_takeaways = await twelvelabs_provider.generate_key_takeaways()
+        elif provider == 'google':
+            google_provider = GoogleHandler(gemini_file_id=video_id)
+            key_takeaways = await google_provider.generate_key_takeaways()
+        elif provider == 'aws':
+            aws_provider = AWSHandler(s3_key=video_id)
+            key_takeaways = await aws_provider.generate_key_takeaways()
+        else:
+            raise HTTPException(status_code=400, detail="Invalid provider")
+
+        return success_response(key_takeaways, time.time() - start_time, 'Key takeaways generated successfully', provider, 'key_takeaways')
     
     except Exception as e:
 
@@ -337,9 +442,7 @@ async def generate_key_takeaways(twelve_labs_video_id: str = Depends(get_video_i
             'message': str(e)
         }
 
-@app.get('/generate_quiz_questions')
 @app.post('/generate_quiz_questions')
-#@cross_origin()
 async def generate_quiz_questions(request: Request):
 
     """
@@ -350,38 +453,29 @@ async def generate_quiz_questions(request: Request):
 
     try:
 
-        if request.method == 'GET':
-            twelve_labs_video_id = request.query_params.get('video_id')
-            chapters = request.query_params.get('chapters')
+        start_time = time.time()
+
+        data = await request.json()
+        twelve_labs_video_id = data.get('video_id')
+        provider = data.get('provider')
+        chapters = data.get('chapters')
+
+        if not twelve_labs_video_id or not provider or not chapters:
+            raise HTTPException(status_code=400, detail="Missing required fields")
+        
+        if provider == 'twelvelabs':
+            twelvelabs_provider = TwelveLabsHandler(twelve_labs_video_id=twelve_labs_video_id)
+            quiz_questions = await twelvelabs_provider.generate_quiz_questions(chapters)
+        elif provider == 'google':
+            google_provider = GoogleHandler(gemini_file_id=twelve_labs_video_id)
+            quiz_questions = await google_provider.generate_quiz_questions(chapters)
+        elif provider == 'aws':
+            aws_provider = AWSHandler(s3_key=twelve_labs_video_id)
+            quiz_questions = await aws_provider.generate_quiz_questions(chapters)
         else:
-            data = await request.json()
-            twelve_labs_video_id = data.get('twelve_labs_video_id')
-            chapters = data.get('chapters')
+            raise HTTPException(status_code=400, detail="Invalid provider")
 
-        if not twelve_labs_video_id:
-            return {
-                'status': 'error',
-                'type': 'quiz_questions',
-                'message': 'twelve_labs_video_id is required'
-            }
-
-        if not chapters:
-            return {
-                'status': 'error',
-                'type': 'quiz_questions',
-                'message': 'chapters is required'
-            }
-
-        twelvelabs_provider = TwelveLabsHandler(twelve_labs_video_id=twelve_labs_video_id)
-
-        quiz_questions = await twelvelabs_provider.generate_quiz_questions(chapters)
-
-        return {
-            'status': 'success',
-            'type': 'quiz_questions',
-            'message': 'Quiz questions generated successfully',
-            'data': quiz_questions
-        }
+        return success_response(quiz_questions, time.time() - start_time, 'Quiz questions generated successfully', 'twelvelabs', 'quiz_questions')
     
     except Exception as e:
 
@@ -394,27 +488,34 @@ async def generate_quiz_questions(request: Request):
         }
     
 @app.get('/generate_engagement')
-@app.post('/generate_engagement')
-#@cross_origin()
-async def generate_engagement(twelve_labs_video_id: str = Depends(get_video_id_from_request)):
+async def generate_engagement(video_params: VideoIdRequestSingleProvider = Depends(get_video_id_from_request_single_provider)):
     
     """
     Generates engagement for a video.
     """
 
+    video_id = video_params.video_id
+    provider = video_params.provider
+
     logger.info('Generating engagement')
     
     try:
-        
-        twelvelabs_provider = TwelveLabsHandler(twelve_labs_video_id=twelve_labs_video_id)
-        engagement = await twelvelabs_provider.generate_engagement()
 
-        return {
-            'status': 'success',
-            'type': 'engagement',
-            'message': 'Engagement generated successfully',
-            'data': engagement
-        }
+        start_time = time.time()
+        
+        if provider == 'twelvelabs':
+            twelvelabs_provider = TwelveLabsHandler(twelve_labs_video_id=video_id)
+            engagement = await twelvelabs_provider.generate_engagement()
+        elif provider == 'google':
+            google_provider = GoogleHandler(gemini_file_id=video_id)
+            engagement = await google_provider.generate_engagement()
+        elif provider == 'aws':
+            aws_provider = AWSHandler(s3_key=video_id)
+            engagement = await aws_provider.generate_engagement()
+        else:
+            raise HTTPException(status_code=400, detail="Invalid provider")
+
+        return success_response(engagement, time.time() - start_time, 'Engagement generated successfully', provider, 'engagement')
     
     except Exception as e:
         
@@ -426,6 +527,84 @@ async def generate_engagement(twelve_labs_video_id: str = Depends(get_video_id_f
             'message': str(e)
         }
 
+@app.get('/generate_summary')
+async def generate_summary(video_params: VideoIdRequestSingleProvider = Depends(get_video_id_from_request_single_provider)):
+    
+    """
+    Generates summary for a video.
+    """
+
+    video_id = video_params.video_id
+    provider = video_params.provider
+
+    logger.info('Generating summary')
+
+    try:
+
+        start_time = time.time()
+
+        if provider == 'twelvelabs':
+            twelvelabs_provider = TwelveLabsHandler(twelve_labs_video_id=video_id)
+            summary = await twelvelabs_provider.generate_summary()
+        elif provider == 'google':
+            google_provider = GoogleHandler(gemini_file_id=video_id)
+            summary = await google_provider.generate_summary()
+        elif provider == 'aws':
+            aws_provider = AWSHandler(s3_key=video_id)
+            summary = await aws_provider.generate_summary()
+        else:
+            raise HTTPException(status_code=400, detail="Invalid provider")
+
+        return success_response(summary, time.time() - start_time, 'Summary generated successfully', provider, 'summary')
+    
+    except Exception as e:
+
+        print(f"Error in generate_summary endpoint: {e}")
+
+        return {
+            'status': 'error',
+            'type': 'summary',
+            'message': str(e)
+        }
+
+@app.get('/generate_transcript')
+async def generate_transcript(video_params: VideoIdRequestSingleProvider = Depends(get_video_id_from_request_single_provider)):
+
+    """
+    Generates transcript for a video.
+    """
+
+    video_id = video_params.video_id
+    provider = video_params.provider
+
+    logger.info('Generating transcript')
+
+    try:
+
+        start_time = time.time()
+
+        if provider == 'google':
+            google_provider = GoogleHandler(gemini_file_id=video_id)
+            transcript = await google_provider.generate_transcript()
+        elif provider == 'aws':
+            aws_provider = AWSHandler(s3_key=video_id)
+            transcript = await aws_provider.generate_transcript()
+        else:
+            raise HTTPException(status_code=400, detail="Invalid provider")
+        
+        return success_response(transcript, time.time() - start_time, 'Transcript generated successfully', provider, 'transcript')
+
+    
+    except Exception as e:
+
+        print(f"Error in generate_transcript endpoint: {e}")
+
+        return {
+            'status': 'error',
+            'type': 'transcript',
+            'message': str(e)
+        }
+    
 @app.post('/publish_course')
 async def publish_course(request: Request):
 
@@ -446,6 +625,8 @@ async def publish_course(request: Request):
         db_handler = DBHandler()
 
         video_id = data.get('video_id')
+        gemini_file_id = data.get('gemini_file_id')
+        s3_key = data.get('s3_key')
         title = data.get('title')
         chapters = data.get('chapters')
         quiz_questions = data.get('quiz_questions')
@@ -463,7 +644,7 @@ async def publish_course(request: Request):
                 'message': 'Missing required fields'
             }, status_code=400)
 
-        result = db_handler.upload_course_metadata(video_id=video_id, title=title, chapters=chapters, quiz_questions=quiz_questions, key_takeaways=key_takeaways, pacing_recommendations=pacing_recommendations, summary=summary, engagement=engagement, transcript=transcript)
+        result = db_handler.upload_course_metadata(video_id=video_id, title=title, chapters=chapters, quiz_questions=quiz_questions, key_takeaways=key_takeaways, pacing_recommendations=pacing_recommendations, summary=summary, engagement=engagement, transcript=transcript, gemini_file_id=gemini_file_id, s3_key=s3_key)
 
         return JSONResponse({
             'status': 'success',
@@ -516,7 +697,7 @@ async def get_published_courses(request: Request):
     
 @app.get('/fetch_course_metadata')
 @app.post('/fetch_course_metadata')
-async def fetch_course_metadata(twelve_labs_video_id: str = Depends(get_video_id_from_request)):
+async def fetch_course_metadata(request: Request):
 
     """
     Fetches course metadata for a given video ID from the database.
@@ -524,8 +705,11 @@ async def fetch_course_metadata(twelve_labs_video_id: str = Depends(get_video_id
 
     try:
 
+        data = await request.json()
+        video_id = data.get('video_id')
+
         db_handler = DBHandler()
-        course_metadata = db_handler.fetch_course_metadata(video_id=twelve_labs_video_id)
+        course_metadata = db_handler.fetch_course_metadata(video_id=video_id)
 
         course_metadata = convert_decimals_for_json(course_metadata)
 
@@ -681,13 +865,9 @@ async def calculate_quiz_performance_by_student(request: Request):
         evaluation_agent = EvaluationAgent(video_metadata)
         quiz_performance = evaluation_agent.calculate_quiz_performance(wrong_answers)
 
-        # Convert for DynamoDB storage (floats to Decimal)
         quiz_performance_for_db = convert_for_dynamodb(quiz_performance)
-        
-        # Convert for JSON response (Decimal to string)
         quiz_performance_for_response = convert_decimals_for_json(quiz_performance)
 
-        # Start background task to save progress report
         asyncio.create_task(db_handler.save_student_progress_report(student_name, video_id, quiz_performance_for_db))
 
         return JSONResponse({
@@ -776,7 +956,7 @@ async def get_finished_videos(request: Request):
         }, status_code=500)
     
 @app.post('/generate_course_analysis')
-async def generate_course_analysis(twelve_labs_video_id: str = Depends(get_video_id_from_request)):
+async def generate_course_analysis(request: Request):
     
     """
     
@@ -785,10 +965,13 @@ async def generate_course_analysis(twelve_labs_video_id: str = Depends(get_video
     """
 
     try:
+
+        data = await request.json()
+        video_id = data.get('video_id')
         
         db_handler = DBHandler()
-        student_data = db_handler.fetch_student_data_from_course(twelve_labs_video_id)
-        video_metadata = db_handler.fetch_course_metadata(twelve_labs_video_id)
+        student_data = db_handler.fetch_student_data_from_course(video_id)
+        video_metadata = db_handler.fetch_course_metadata(video_id)
 
         if not student_data:
             return JSONResponse({
@@ -831,7 +1014,7 @@ async def generate_course_analysis(twelve_labs_video_id: str = Depends(get_video
         }, status_code=500)
 
 @app.post('/fetch_student_data_from_course')
-async def fetch_student_data_from_course(twelve_labs_video_id: str = Depends(get_video_id_from_request)):
+async def fetch_student_data_from_course(request: Request):
     
     """
     
@@ -841,8 +1024,11 @@ async def fetch_student_data_from_course(twelve_labs_video_id: str = Depends(get
     
     try:
 
+        data = await request.json()
+        video_id = data.get('video_id')
+
         db_handler = DBHandler()
-        student_data = db_handler.fetch_student_data_from_course(twelve_labs_video_id)
+        student_data = db_handler.fetch_student_data_from_course(video_id)
 
         student_data = convert_decimals_for_json(student_data)
 
@@ -858,7 +1044,7 @@ async def fetch_student_data_from_course(twelve_labs_video_id: str = Depends(get
             'status': 'error',
             'message': str(e)
         }, status_code=500)
-
+    
 
 if __name__ == "__main__":
 

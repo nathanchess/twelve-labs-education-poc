@@ -30,7 +30,7 @@ class LectureBuilderAgent:
             )
             
             return response
-
+        
         except Exception as e:
 
             raise Exception(f"Error reformatting text: {str(e)}")

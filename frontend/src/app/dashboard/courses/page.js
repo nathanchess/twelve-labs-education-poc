@@ -155,7 +155,6 @@ export default function Courses() {
     
     if (videoFile) {
       handleUpload(videoFile);
-      // Don't call uploadToS3 here - it will be handled by handleUploadVideos
     }
   };
 
@@ -166,24 +165,24 @@ export default function Courses() {
   const uploadVideoIdToDynamoDB = async (twelveLabsVideoId, s3Key, geminiFileId) => {
 
     try {
-      // Validate that we have the required values
       if (!twelveLabsVideoId) {
         throw new Error('TwelveLabs video ID is required');
       }
 
-      // Create the request body with proper validation
       const requestBody = {
         twelve_labs_video_id: twelveLabsVideoId
       };
 
-      // Only include s3_key if it's a valid string
       if (s3Key && typeof s3Key === 'string' && s3Key.trim() !== '') {
         requestBody.s3_key = s3Key;
+      } else {
+        console.error('S3 key is required');
       }
 
-      // Only include gemini_file_id if it's a valid string
       if (geminiFileId && typeof geminiFileId === 'string' && geminiFileId.trim() !== '') {
         requestBody.gemini_file_id = geminiFileId;
+      } else {
+        console.error('Gemini file ID is required');
       }
 
       console.log('Uploading to DynamoDB with:', requestBody);
@@ -210,8 +209,6 @@ export default function Courses() {
       setUploadProgress(0);
       throw new Error(`Error uploading to DynamoDB: ${error.message}`);
     }
-
-
   }
 
   const uploadVideoToTwelveLabs = async (s3Result, geminiResult) => {
@@ -223,7 +220,6 @@ export default function Courses() {
     setUploadProgress(0);
     
     try {
-      // Upload to TwelveLabs with progress tracking
       const url = 'https://api.twelvelabs.io/v1.3/tasks';
 
       const form = new FormData();

@@ -5,6 +5,7 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import React from 'react';
 import VideoPlayer from './VideoPlayer';
 import ChaptersSection from './ChaptersSection';
+import VideoPreviewHeader from './VideoPreviewHeader';
 
 export default function InstructorCourseView({ videoId }) {
 
@@ -18,12 +19,29 @@ export default function InstructorCourseView({ videoId }) {
   try {
 
     const router = useRouter();
+
+    const [geminiFileId, setGeminiFileId] = useState(null);
+    const [s3Key, setS3Key] = useState(null);
+
     const [videoData, setVideoData] = useState(null);
     const [loading, setLoading] = useState(true);
     const [showChapters, setShowChapters] = useState(true);
     const [isAnalyzing, setIsAnalyzing] = useState(true);
     const [analysisComplete, setAnalysisComplete] = useState(false);
-    const [generatedContent, setGeneratedContent] = useState({
+
+    const [twelveLabsGeneratedContent, setTwelveLabsGeneratedContent] = useState({
+      gist: false,
+      chapters: false,
+      summary: '',
+      key_takeaways: false,
+      pacing_recommendations: false,
+      quiz_questions: false,
+      engagement: false,  
+      transcript: ''
+    });
+
+    const [googleGeneratedContent, setGoogleGeneratedContent] = useState({
+      gist: false,
       chapters: false,
       summary: '',
       key_takeaways: false,
@@ -32,14 +50,65 @@ export default function InstructorCourseView({ videoId }) {
       engagement: false,
       transcript: ''
     });
+
+    const [awsGeneratedContent, setAwsGeneratedContent] = useState({
+      gist: false,
+      chapters: false,
+      summary: '',
+      key_takeaways: false,
+      pacing_recommendations: false,
+      quiz_questions: false,
+      engagement: false,
+      transcript: ''
+    });
+
+    
+    const [generatedContent, setGeneratedContent] = useState({
+      gist: false,
+      chapters: false,
+      summary: '',
+      key_takeaways: false,
+      pacing_recommendations: false,
+      quiz_questions: false,
+      engagement: false,
+      transcript: ''
+    });
+    
+    const [twelveLabsDuration, setTwelveLabsDuration] = useState({
+      gist: 0,
+      chapters: 0,
+      summary: 0,
+      key_takeaways: 0,
+      pacing_recommendations: 0,
+      quiz_questions: 0,
+      engagement: 0,
+      transcript: 0.1
+    });
+
+    const [googleDuration, setGoogleDuration] = useState({
+      gist: 0,
+      chapters: 0,
+      summary: 0,
+      key_takeaways: 0,
+      pacing_recommendations: 0,
+      quiz_questions: 0,
+      engagement: 0,
+      transcript: 0
+    });
+
+    const [awsDuration, setAwsDuration] = useState({
+      gist: 0,
+      chapters: 0,
+      summary: 0,
+      key_takeaways: 0,
+      pacing_recommendations: 0,
+      quiz_questions: 0,
+      engagement: 0,
+      transcript: 0
+    });
+
     const [quizChapterSelect, setQuizChapterSelect] = useState(1);
 
-    const [generatedTitle, setGeneratedTitle] = useState(null);
-    const [generatedHashtags, setGeneratedHashtags] = useState(null);
-    const [generatedTopics, setGeneratedTopics] = useState(null);
-    const [titleCompleted, setTitleCompleted] = useState(false);
-    const [hashtagsCompleted, setHashtagsCompleted] = useState(false);
-    const [topicsCompleted, setTopicsCompleted] = useState(false);
     const [chaptersLoading, setChaptersLoading] = useState(true);
     const [videoSeekTo, setVideoSeekTo] = useState(null);
     const [videoCurrentTime, setVideoCurrentTime] = useState(0);
@@ -47,49 +116,18 @@ export default function InstructorCourseView({ videoId }) {
     const [publishing, setPublishing] = useState(false);
     const [showTranscript, setShowTranscript] = useState(true);
     const [shuffledOptionsMap, setShuffledOptionsMap] = useState({});
-    const [isHydrated, setIsHydrated] = useState(false);
+    
+    // Quiz section state
+    const [selectedQuizProvider, setSelectedQuizProvider] = useState('twelvelabs');
+    const [currentQuizQuestionIndex, setCurrentQuizQuestionIndex] = useState(0);
+    const [quizShuffledOptions, setQuizShuffledOptions] = useState({});
+     const [selectedTranscriptProvider, setSelectedTranscriptProvider] = useState('twelvelabs');
     
     // Add ref to track initialization
     const initializedRef = useRef(false);
-
-    // Ensure consistent hydration
-    useEffect(() => {
-      setIsHydrated(true);
-    }, []);
-
-    // Debug effect to monitor chapters changes
-    useEffect(() => {
-      console.log('Chapters state changed:', generatedContent.chapters);
-      console.log('Chapters loading state:', chaptersLoading);
-    }, [generatedContent.chapters, chaptersLoading]);
-
-    // Handle animation timing for cached analysis display
-    useEffect(() => {
-      if (generatedTitle && typeof generatedTitle === 'string' && generatedTitle.trim() !== '') {
-        const timer = setTimeout(() => {
-          setTitleCompleted(true);
-        }, 2000);
-        return () => clearTimeout(timer);
-      }
-    }, [generatedTitle]);
-
-    useEffect(() => {
-      if (generatedHashtags && Array.isArray(generatedHashtags) && generatedHashtags.length > 0) {
-        const timer = setTimeout(() => {
-          setHashtagsCompleted(true);
-        }, 2000);
-        return () => clearTimeout(timer);
-      }
-    }, [generatedHashtags]);
-
-    useEffect(() => {
-      if (generatedTopics && Array.isArray(generatedTopics) && generatedTopics.length > 0) {
-        const timer = setTimeout(() => {
-          setTopicsCompleted(true);
-        }, 2000);
-        return () => clearTimeout(timer);
-      }
-    }, [generatedTopics]);
+    const googleQuizQuestionsRef = useRef(null);
+    const awsQuizQuestionsRef = useRef(null);
+    const twelveLabsQuizQuestionsRef = useRef(null);
 
     const handleVideoSeekTo = useCallback((seekFunction) => {
       setVideoSeekTo(() => seekFunction);
@@ -126,7 +164,7 @@ export default function InstructorCourseView({ videoId }) {
       }
     }, [videoSeekTo]);
 
-    // Generate shuffled options when quizChapterSelect changes (client-side only)
+
     useEffect(() => {
       if (typeof window === 'undefined' || !quizChapterSelect || !generatedContent.quiz_questions) return;
       
@@ -141,16 +179,16 @@ export default function InstructorCourseView({ videoId }) {
 
     // Helper function to shuffle array
     function shuffleArray(array) {
-      // Only shuffle on client side
-      if (typeof window === 'undefined') {
-        return array;
-      }
-      const arr = [...array];
-      for (let i = arr.length - 1; i > 0; i--) {
+      const shuffled = [...array];
+      for (let i = shuffled.length - 1; i > 0; i--) {
         const j = Math.floor(Math.random() * (i + 1));
-        [arr[i], arr[j]] = [arr[j], arr[i]];
+        [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
       }
-      return arr;
+      return shuffled;
+    }
+
+    function calculateTotalDuration(durationObject) {
+      return Math.round(Math.max(...Object.values(durationObject))) + 's';
     }
 
     const fetchVideo = async () => {
@@ -164,12 +202,11 @@ export default function InstructorCourseView({ videoId }) {
         
         const result = await retrieveVideoResponse.json();
 
-        // Collect all transcript chunks first, then update state once
         let transcriptText = '';
         if (result.transcription) {
           transcriptText = result.transcription.map(chunk => chunk.value).join(' ');
           console.log('Full transcript:', transcriptText);
-          setGeneratedContent(prev => {
+          setTwelveLabsGeneratedContent(prev => {
             const newState = {
               ...prev,
               transcript: transcriptText,
@@ -191,18 +228,13 @@ export default function InstructorCourseView({ videoId }) {
           hlsUrl: result.hls?.video_url || null
         }
 
-        console.log('Setting video data:', videoData);
         setVideoData(videoData);
-        console.log('Setting loading to false');
         setLoading(false);
-        console.log('State updates completed');
         
-        // Return the transcript text for immediate use
         return transcriptText;
         
       } catch (error) {
         console.error('Error fetching video data:', error);
-        // Set a fallback video data
         const fallbackData = {
           name: 'Video Not Found',
           size: 0,
@@ -221,202 +253,404 @@ export default function InstructorCourseView({ videoId }) {
       }
     }
 
-    const fetchExistingCourseMetadata = async (transcriptFromVideo = '') => {
-      try {
-        const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/fetch_course_metadata`, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json'
-          },
-          body: JSON.stringify({ video_id: videoId })
-        });
+    // Helper function to safely render content with error handling
+    const renderContent = (content, type, provider) => {
+      if (!content) {
+        return <div className="h-32 bg-white rounded-lg animate-pulse border"></div>;
+      }
 
-        if (response.ok) {
-          const result = await response.json();
-          console.log('Found existing course metadata:', result.data)
+      // Check if content has error property (from failed parsing)
+      if (content.error) {
+        return (
+          <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-3">
+            <div className="text-sm text-yellow-700 mb-2">Output incorrect</div>
+            <details className="text-xs">
+              <summary className="cursor-pointer text-yellow-600">Show raw response</summary>
+              <pre className="mt-2 p-2 bg-yellow-100 rounded text-xs overflow-x-auto">{JSON.stringify(content.raw, null, 2)}</pre>
+            </details>
+          </div>
+        );
+      }
 
-          console.log('generatedContent:', generatedContent)
-          console.log('transcriptFromVideo:', transcriptFromVideo)
-
-          if (result.data && result.data.chapters) {
-
-            const generatedContentTable = {
-              ...generatedContent,
-              chapters: result.data.chapters || false,
-              summary: result.data.summary || '',
-              key_takeaways: result.data.key_takeaways || false,
-              pacing_recommendations: result.data.pacing_recommendations || false,
-              quiz_questions: result.data.quiz_questions || false,
-              engagement: result.data.engagement || false,
-              transcript: transcriptFromVideo || '',
-            }
-  
-            // Set the existing course data
-            setGeneratedContent(generatedContentTable);
-            
-            // Set the title from existing metadata
-            setGeneratedTitle(result.data.title || null);
-
-            // Mark analysis as complete since we have existing data
-            setIsAnalyzing(false);
-            setAnalysisComplete(true);
-            setChaptersLoading(false);
-
-            return generatedContentTable;
-
+      // Handle different content types
+      switch (type) {
+        case 'gist':
+          if (typeof content === 'object' && content.title) {
+            return (
+              <div className="space-y-3">
+                <div className="bg-white rounded-lg p-3 border">
+                  <div className="text-sm font-semibold text-gray-800 mb-2">{content.title}</div>
+                  <div className="flex flex-wrap gap-1 mb-3">
+                    {content.hashtags?.map((tag, idx) => (
+                      <span key={idx} className="text-xs bg-gray-100 text-gray-700 px-2 py-1 rounded-full font-medium">#{tag}</span>
+                    ))}
+                  </div>
+                  <div className="flex flex-wrap gap-1">
+                    {content.topics?.map((topic, idx) => (
+                      <span key={idx} className="text-xs bg-gray-100 text-gray-700 px-2 py-1 rounded-full">{topic}</span>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            );
+          } else {
+            return (
+              <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-3">
+                <div className="text-sm text-yellow-700 mb-2">Output incorrect</div>
+                <details className="text-xs">
+                  <summary className="cursor-pointer text-yellow-600">Show raw response</summary>
+                  <pre className="mt-2 p-2 bg-yellow-100 rounded text-xs overflow-x-auto">{JSON.stringify(content, null, 2)}</pre>
+                </details>
+              </div>
+            );
           }
-          
-        } else {
-          console.log('No existing course metadata found, will generate new content')
-          return {};
-        }
-      } catch (error) {
-        console.error('Error checking for existing course metadata:', error);
-        return {};
+
+        case 'key_takeaways':
+          if (Array.isArray(content)) {
+            return (
+              <div className="space-y-2 max-h-48 overflow-y-auto">
+                {content.map((takeaway, idx) => (
+                  <div key={idx} className="bg-white rounded-lg p-3 border">
+                    <div className="flex items-start gap-3">
+                      <div className="w-2 h-2 bg-gray-500 rounded-full mt-2 flex-shrink-0"></div>
+                      <span className="text-sm text-gray-700 leading-relaxed">{takeaway}</span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            );
+          } else {
+            return (
+              <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-3">
+                <div className="text-sm text-yellow-700 mb-2">Output incorrect</div>
+                <details className="text-xs">
+                  <summary className="cursor-pointer text-yellow-600">Show raw response</summary>
+                  <pre className="mt-2 p-2 bg-yellow-100 rounded text-xs overflow-x-auto">{JSON.stringify(content, null, 2)}</pre>
+                </details>
+              </div>
+            );
+          }
+
+        case 'chapters':
+          if (Array.isArray(content)) {
+            return (
+              <div className="space-y-2 max-h-48 overflow-y-auto">
+                {content.map((chapter, idx) => (
+                  <div key={idx} className="bg-white rounded-lg p-3 border">
+                    <div className="text-sm font-semibold text-gray-800 mb-1">{chapter.title || `Chapter ${idx + 1}`}</div>
+                    <div className="text-xs text-gray-600">{chapter.start_time || '00:00'} - {chapter.end_time || '00:00'}</div>
+                  </div>
+                ))}
+              </div>
+            );
+          } else {
+            return (
+              <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-3">
+                <div className="text-sm text-yellow-700 mb-2">Output incorrect</div>
+                <details className="text-xs">
+                  <summary className="cursor-pointer text-yellow-600">Show raw response</summary>
+                  <pre className="mt-2 p-2 bg-yellow-100 rounded text-xs overflow-x-auto">{JSON.stringify(content, null, 2)}</pre>
+                </details>
+              </div>
+            );
+          }
+
+        case 'pacing_recommendations':
+          if (Array.isArray(content)) {
+            return (
+              <div className="space-y-2 max-h-48 overflow-y-auto">
+                {content.map((rec, idx) => (
+                  <div key={idx} className="bg-white rounded-lg p-3 border">
+                    <div className="flex items-center justify-between mb-2">
+                      <div className="text-sm font-medium text-gray-800">
+                        {rec.recommendation || rec}
+                      </div>
+                      {rec.severity && (
+                        <div className={`text-xs px-2 py-1 rounded-full font-medium ${
+                          rec.severity === 'high' ? 'bg-red-100 text-red-700' :
+                          rec.severity === 'medium' ? 'bg-yellow-100 text-yellow-700' :
+                          'bg-green-100 text-green-700'
+                        }`}>
+                          {rec.severity}
+                        </div>
+                      )}
+                    </div>
+                    
+                    {/* Display timing information if available */}
+                    {(rec.start_time !== undefined || rec.end_time !== undefined) && (
+                      <div className="text-xs text-gray-600 mb-2">
+                        {rec.start_time !== undefined && rec.end_time !== undefined ? (
+                          <span>
+                            Time: {Math.floor(rec.start_time / 60)}:{(rec.start_time % 60).toString().padStart(2, '0')} - {Math.floor(rec.end_time / 60)}:{(rec.end_time % 60).toString().padStart(2, '0')}
+                          </span>
+                        ) : rec.start_time !== undefined ? (
+                          <span>
+                            Start: {Math.floor(rec.start_time / 60)}:{(rec.start_time % 60).toString().padStart(2, '0')}
+                          </span>
+                        ) : (
+                          <span>
+                            End: {Math.floor(rec.end_time / 60)}:{(rec.end_time % 60).toString().padStart(2, '0')}
+                          </span>
+                        )}
+                      </div>
+                    )}
+                    
+                    {rec.duration && (
+                      <div className="text-xs text-gray-500">
+                        Impact: {rec.duration} minutes
+                      </div>
+                    )}
+                    
+                    {rec.reason && (
+                      <div className="text-xs text-gray-500 italic mt-1">
+                        {rec.reason}
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            );
+          } else {
+            return (
+              <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-3">
+                <div className="text-sm text-yellow-700 mb-2">Output incorrect</div>
+                <details className="text-xs">
+                  <summary className="cursor-pointer text-yellow-600">Show raw response</summary>
+                  <pre className="mt-2 p-2 bg-yellow-100 rounded text-xs overflow-x-auto">{JSON.stringify(content, null, 2)}</pre>
+                </details>
+              </div>
+            );
+          }
+
+        case 'engagement':
+          if (Array.isArray(content)) {
+            return (
+              <div className="space-y-2 max-h-48 overflow-y-auto">
+                {content.map((event, idx) => (
+                  <div key={idx} className="bg-white rounded-lg p-3 border">
+                    <div className="flex items-center justify-between mb-2">
+                      <div className="text-sm font-medium text-gray-800">
+                        {event.emotion ? (
+                          <>
+                            <span className="font-bold">{event.emotion}</span>
+                            {typeof event.engagement_level === 'number' && (
+                              <span className="ml-2 text-xs text-blue-600">Level {event.engagement_level}/5</span>
+                            )}
+                          </>
+                        ) : (
+                          JSON.stringify(event)
+                        )}
+                      </div>
+                      {event.timestamp && (
+                        <div className="text-xs text-gray-500">
+                          {event.timestamp}
+                        </div>
+                      )}
+                    </div>
+                    {event.description && (
+                      <div className="text-xs text-gray-600">
+                        {event.description}
+                      </div>
+                    )}
+                    {event.reason && (
+                      <div className="text-xs text-gray-500 italic">
+                        {event.reason}
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            );
+          } else {
+            return (
+              <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-3">
+                <div className="text-sm text-yellow-700 mb-2">Output incorrect</div>
+                <details className="text-xs">
+                  <summary className="cursor-pointer text-yellow-600">Show raw response</summary>
+                  <pre className="mt-2 p-2 bg-yellow-100 rounded text-xs overflow-x-auto">{JSON.stringify(content, null, 2)}</pre>
+                </details>
+              </div>
+            );
+          }
+
+        default:
+          return (
+            <div className="bg-gray-50 border border-gray-200 rounded-lg p-3">
+              <span className="text-sm text-gray-600">Content type not supported</span>
+            </div>
+          );
       }
-    }
-
-    const fetchCachedAnalysis = async () => {
-      try {
-        console.log('Fetching cached analysis...');
-        const cachedAnalysisResult = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/cached_analysis`, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json'
-          },
-          body: JSON.stringify({twelve_labs_video_id: videoId})
-        });
-
-        console.log('Cached analysis response status:', cachedAnalysisResult.status);
-        
-        if (!cachedAnalysisResult.ok) {
-          console.warn('Cached analysis failed, continuing without it');
-          return;
-        }
-
-        const result = await cachedAnalysisResult.json();
-        console.log('Cached analysis result:', result);
-
-        if (result && result.data && result.data.twelve_labs) {
-          const twelveLabsData = result.data.twelve_labs;
-          setGeneratedTitle(twelveLabsData.title || null);
-          setGeneratedHashtags(twelveLabsData.hashtags || null);
-          setGeneratedTopics(twelveLabsData.topics || null);
-        } else {
-          console.warn('Cached analysis data structure is not as expected:', result);
-          setGeneratedTitle(null);
-          setGeneratedHashtags(null);
-          setGeneratedTopics(null);
-        }
-      } catch (error) {
-        console.error('Error fetching cached analysis:', error);
-        setGeneratedTitle(null);
-        setGeneratedHashtags(null);
-        setGeneratedTopics(null);
-      }
-    }
-
-
+    };
 
     async function parallelAnalysis(api_urls) {
 
-      let chapters = null;
+      let allPendingPromises = [];
 
-      const pendingPromises = api_urls.map(url => {
-        const promise = fetch(url, {
-          method: 'GET',
-        }).then(response => {
-          if (!response.ok) {
-            throw new Error(`HTTP ${response.status}: ${response.statusText}`);
-          }
-          return response.json();
-        }).then(result => ({ status: 'success', data: result, url: url })).catch(error => ({ status: 'error', error: error, url: url }));
-        
-        return {
-          promiseObj: promise,
-          url: url
-        };
-      });
+      for (const provider in api_urls) {
+        const urls = api_urls[provider];
+        const pendingPromises = urls.map(url => {
+          const promise = fetch(url, {
+            method: 'GET',
+          }).then(response => {
+            if (!response.ok) {
+              throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+            }
+            return response.json();
+          }).then(result => ({ status: 'success', data: result, url: url, provider: provider })).catch(error => ({ status: 'error', error: error, url: url, provider: provider }));
+          
+          return {
+            promiseObj: promise,
+            url: url,
+          };
+        })
+        allPendingPromises.push(...pendingPromises);
+      }
 
-      let remainingPromises = [...pendingPromises];
+      console.log('Remaining promises:', allPendingPromises);
 
-      console.log('Remaining promises:', remainingPromises);
-
-      while (remainingPromises.length > 0) {
+      while (allPendingPromises.length > 0) {
         try {
-          const result = await Promise.race(remainingPromises.map(p => p.promiseObj));
+          const result = await Promise.race(allPendingPromises.map(p => p.promiseObj));
+
           console.log('Settled result:', result);
-          console.log('generatedContent:', generatedContent)
-          console.log(result.data.type, result.data.data)
           
           if (result.status === 'success') {
             console.log('Success:', result.data);
-            if (result.data.type === 'chapters') {
-              chapters = result.data.data[Object.keys(result.data.data)[0]];
-              console.log('Chapters received:', chapters);
-              setChaptersLoading(false); // Set loading to false when chapters are received
+            
+            // Extract data from the response
+            let extractedData = null;
+            if (result.data && result.data.data && typeof result.data.data === 'object') {
+              const keys = Object.keys(result.data.data);
+              if (result.data.type === 'gist') {
+                extractedData = result.data.data;
+              } else if (result.data.type === 'chapters') {
+                // For chapters, extract the array directly
+                extractedData = result.data.data.chapters || result.data.data[keys[0]];
+                // Set chapters loading to false when any provider gets chapters
+                if (extractedData && Array.isArray(extractedData)) {
+                  setChaptersLoading(false);
+                }
+              } else if (keys.length > 0) {
+                extractedData = result.data.data[keys[0]];
+              }
             }
-            setGeneratedContent(prev => {
-              const updatedContent = {
+            
+            console.log('Extracted data:', extractedData);
+            
+            if (result.provider === 'twelvelabs') {
+              setTwelveLabsGeneratedContent(prev => {
+                const updatedContent = {
+                  ...prev,
+                  [result.data.type]: extractedData,
+                };
+                return updatedContent;
+              });
+              setTwelveLabsDuration(prev => ({
                 ...prev,
-                [result.data.type]: result.data.data[Object.keys(result.data.data)[0]],
-              };
-              console.log('Updated generatedContent:', updatedContent);
-              return updatedContent;
-            });
+                [result.data.type]: result.data.duration,
+              }));
+            } else if (result.provider === 'google') {
+              setGoogleGeneratedContent(prev => {
+                const updatedContent = {
+                  ...prev,
+                  [result.data.type]: extractedData,
+                };
+                return updatedContent;
+              });
+              setGoogleDuration(prev => ({
+                ...prev,
+                [result.data.type]: result.data.duration,
+              }));
+            } else if (result.provider === 'aws') {
+              setAwsGeneratedContent(prev => {    
+                const updatedContent = {
+                  ...prev,
+                  [result.data.type]: extractedData,
+                };
+                return updatedContent;
+              });
+              setAwsDuration(prev => ({
+                ...prev,
+                [result.data.type]: result.data.duration,
+              }));
+            } else {
+              console.log('Unknown provider:', result.provider);
+            }
           } else {
             console.log('Error:', result.error);
+
+            // Handle provider errors by setting error data
+            const errorData = {
+              error: `Provider error: ${result.error.message || result.error}`,
+              raw: result
+            };
+            
+            if (result.provider === 'twelvelabs') {
+              setTwelveLabsGeneratedContent(prev => ({
+                ...prev,
+                [result.url.split('/').pop()]: errorData
+              }));
+            } else if (result.provider === 'google') {
+              setGoogleGeneratedContent(prev => ({
+                ...prev,
+                [result.url.split('/').pop()]: errorData
+              }));
+            } else if (result.provider === 'aws') {
+              setAwsGeneratedContent(prev => ({
+                ...prev,
+                [result.url.split('/').pop()]: errorData
+              }));
+            }
           }
 
-          remainingPromises = remainingPromises.filter(p => p.url !== result.url);
+          allPendingPromises = allPendingPromises.filter(p => p.url !== result.url);
 
         } catch (error) {
           console.error('Error in parallel analysis:', error);
           break;
         }
       }
-      if (chapters) {
-        await generateQuizQuestions(chapters);
-      }
+    }
+    
+    const fetchVideoIds = async () => {
+      const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/fetch_video_ids`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({video_id: videoId})
+      });
+
+      const result = await response.json();
+      console.log('Video IDs:', result.data);
+      setGeminiFileId(result.data.gemini_file_id);
+      setS3Key(result.data.s3_key);
+
+      return {
+        geminiFileIdLocal: result.data.gemini_file_id,
+        s3KeyLocal: result.data.s3_key
+      };
     }
 
-    const generateQuizQuestions = async (chapters) => {
-      try {
-        const quizQuestionsResult = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/generate_quiz_questions`, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json'
-          },
-          body: JSON.stringify({twelve_labs_video_id: videoId, chapters: chapters})
-        });
-        
-        if (!quizQuestionsResult.ok) {
-          throw new Error(`HTTP ${quizQuestionsResult.status}: ${quizQuestionsResult.statusText}`);
-        }
+    const generateChapterQuizQuestions = async (video_key, chapters, provider) => {
 
-        const result = await quizQuestionsResult.json();
-        console.log('Quiz questions generation result:', result);
-        
-        if (result && result.data && result.data.quiz_questions) {
-          console.log('Quiz questions generated successfully:', result.data.quiz_questions);
-          setGeneratedContent(prev => ({
-            ...prev,
-            quiz_questions: result.data.quiz_questions,
-          }));
-        } else {
-          console.warn('Quiz questions generation result is not as expected:', result);
-          setGeneratedContent(prev => ({
-            ...prev,
-            quiz_questions: null,
-          }));
-        }
-      } catch (error) {
-        console.error('Error generating quiz questions:', error);
-        setGeneratedContent(prev => ({
-          ...prev,
-          quiz_questions: null,
-        }));
-      }
+      console.log('Generating quiz questions for:', provider);
+
+      const quizQuestionsResult = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/generate_quiz_questions`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          video_id: video_key,
+          provider: provider,
+          chapters: chapters
+        })
+      });
+
+      const result = await quizQuestionsResult.json();
+      console.log('Quiz questions generation result for provider:', provider, result);
+      return result;
     }
 
     useEffect(() => {
@@ -429,68 +663,59 @@ export default function InstructorCourseView({ videoId }) {
         return;
       }
 
-      console.log('Initializing course');
-
       const initializeCourse = async () => {
         // Mark as initialized immediately to prevent double execution
         initializedRef.current = true;
-        
+
+        const { geminiFileIdLocal, s3KeyLocal } = await fetchVideoIds();
         const transcriptFromVideo = await fetchVideo();
+
+        setTwelveLabsGeneratedContent(prev => ({
+          ...prev,
+          transcript: transcriptFromVideo
+        }));
         
-        const hasExistingData = await fetchExistingCourseMetadata(transcriptFromVideo);
+        // Testing purposes: Regenerate all content asynchronously
+        let api_urls = {};
 
-        console.log("hasExistingData:", hasExistingData)
+        // TwelveLabs APIs
+        api_urls['twelvelabs'] = [
+         `${process.env.NEXT_PUBLIC_API_URL}/generate_gist?video_id=${videoId}&provider=twelvelabs`,
+         `${process.env.NEXT_PUBLIC_API_URL}/generate_chapters?video_id=${videoId}&provider=twelvelabs`,
+         `${process.env.NEXT_PUBLIC_API_URL}/generate_key_takeaways?video_id=${videoId}&provider=twelvelabs`,
+         `${process.env.NEXT_PUBLIC_API_URL}/generate_pacing_recommendations?video_id=${videoId}&provider=twelvelabs`,
+         `${process.env.NEXT_PUBLIC_API_URL}/generate_engagement?video_id=${videoId}&provider=twelvelabs`,
+         `${process.env.NEXT_PUBLIC_API_URL}/generate_summary?video_id=${videoId}&provider=twelvelabs`,
+        ]
 
-        if (hasExistingData && hasExistingData.engagement && hasExistingData.chapters && hasExistingData.summary && hasExistingData.key_takeaways && hasExistingData.pacing_recommendations && hasExistingData.quiz_questions) {
-          
-          console.log("Existing data found, no need to generate new content")
+        api_urls['google'] = [
+          `${process.env.NEXT_PUBLIC_API_URL}/generate_gist?video_id=${geminiFileIdLocal}&provider=google`,
+          `${process.env.NEXT_PUBLIC_API_URL}/generate_chapters?video_id=${geminiFileIdLocal}&provider=google`,
+          `${process.env.NEXT_PUBLIC_API_URL}/generate_key_takeaways?video_id=${geminiFileIdLocal}&provider=google`,
+          `${process.env.NEXT_PUBLIC_API_URL}/generate_pacing_recommendations?video_id=${geminiFileIdLocal}&provider=google`,
+          `${process.env.NEXT_PUBLIC_API_URL}/generate_engagement?video_id=${geminiFileIdLocal}&provider=google`,
+          `${process.env.NEXT_PUBLIC_API_URL}/generate_summary?video_id=${geminiFileIdLocal}&provider=google`,
+          `${process.env.NEXT_PUBLIC_API_URL}/generate_transcript?video_id=${geminiFileIdLocal}&provider=google`,
+        ]
 
-          await fetchCachedAnalysis();
 
-        } else {
+        api_urls['aws'] = [
+          `${process.env.NEXT_PUBLIC_API_URL}/generate_gist?video_id=${s3KeyLocal}&provider=aws`,
+          `${process.env.NEXT_PUBLIC_API_URL}/generate_chapters?video_id=${s3KeyLocal}&provider=aws`,
+          `${process.env.NEXT_PUBLIC_API_URL}/generate_key_takeaways?video_id=${s3KeyLocal}&provider=aws`,
+          `${process.env.NEXT_PUBLIC_API_URL}/generate_pacing_recommendations?video_id=${s3KeyLocal}&provider=aws`,
+          `${process.env.NEXT_PUBLIC_API_URL}/generate_engagement?video_id=${s3KeyLocal}&provider=aws`,
+          `${process.env.NEXT_PUBLIC_API_URL}/generate_summary?video_id=${s3KeyLocal}&provider=aws`,
+          `${process.env.NEXT_PUBLIC_API_URL}/generate_transcript?video_id=${s3KeyLocal}&provider=aws`,
+        ]
 
-          console.log('existing data: ', hasExistingData);
+        setIsAnalyzing(true);
+        setAnalysisComplete(false);
 
-          setIsAnalyzing(true);
-          setAnalysisComplete(false);
-          setChaptersLoading(true); // Set loading to true when starting to generate content
+        console.log('api_urls:', api_urls);
 
-          let api_urls = []
+        await parallelAnalysis(api_urls);
 
-          await fetchCachedAnalysis();
-
-          if (!hasExistingData) {
-            await analyzeLectureWithAI();
-            api_urls.push(`${process.env.NEXT_PUBLIC_API_URL}/generate_key_takeaways?video_id=${videoId}`);
-            api_urls.push(`${process.env.NEXT_PUBLIC_API_URL}/generate_pacing_recommendations?video_id=${videoId}`);
-            api_urls.push(`${process.env.NEXT_PUBLIC_API_URL}/generate_engagement?video_id=${videoId}`);
-            api_urls.push(`${process.env.NEXT_PUBLIC_API_URL}/generate_chapters?video_id=${videoId}`);
-          } else {
-            
-            if (!hasExistingData.summary) {
-              await analyzeLectureWithAI();
-            }
-
-          if (!hasExistingData.key_takeaways) {
-            api_urls.push(`${process.env.NEXT_PUBLIC_API_URL}/generate_key_takeaways?video_id=${videoId}`);
-          }
-
-          if (!hasExistingData.pacing_recommendations) {
-            api_urls.push(`${process.env.NEXT_PUBLIC_API_URL}/generate_pacing_recommendations?video_id=${videoId}`);
-          }
-
-          if (!hasExistingData.engagement) {
-            api_urls.push(`${process.env.NEXT_PUBLIC_API_URL}/generate_engagement?video_id=${videoId}`);
-          }
-
-            if (!hasExistingData.chapters) {
-              api_urls.push(`${process.env.NEXT_PUBLIC_API_URL}/generate_chapters?video_id=${videoId}`);
-            }
-          }
-
-          await parallelAnalysis(api_urls);
-
-        }
       };
 
       initializeCourse();
@@ -529,7 +754,6 @@ export default function InstructorCourseView({ videoId }) {
       return Math.round((completedCount / contentTypes.length) * 100);
     };
 
-    // Effect to handle completion when progress reaches 100%
     useEffect(() => {
       if (isAnalyzing && calculateProgress() === 100) {
         setIsAnalyzing(false);
@@ -537,190 +761,64 @@ export default function InstructorCourseView({ videoId }) {
       }
     }, [generatedContent, isAnalyzing]);
 
-    const analyzeLectureWithAI = async () => {
-      setIsAnalyzing(true);
-      setAnalysisComplete(false);
+    useEffect(() => {
+      console.log('twelve_labs_generated_content updated:', twelveLabsGeneratedContent);
 
-      console.log("Running streamed analysis...")
-
-      try {
-        
-        const eventSource = new EventSource(`${process.env.NEXT_PUBLIC_API_URL}/run_analysis?video_id=${videoId}`);
-
-        eventSource.onopen = () => {
-            console.log('Event source opened');
-        }
-
-        eventSource.onmessage = (event) => {
-          try {
-            const data = JSON.parse(event.data);
-            console.log('Message received:', data);
-            
-            if (data.type === 'summary' && data.status === 'in_progress') {
-              setGeneratedContent(prev => ({
-                ...prev,
-                summary: prev.summary + data.content,
-              }));
-            } else if (data.status === 'complete') {
-                const progress = calculateProgress();
-
-                if (progress === 100) {
-                    setAnalysisComplete(true);
-                    setIsAnalyzing(false);
-                    eventSource.close();
-                }
-            }
-          } catch (error) {
-            console.error('Error parsing SSE data:', error);
-          }
-        };
-
-        eventSource.onerror = (error) => {
-          eventSource.close();
-        };
-
-      } catch (error) {
-        console.error('Error analyzing lecture:', error);
-        setIsAnalyzing(false);
+      const generateTwelveLabsQuizQuestions = async () => {
+        twelveLabsQuizQuestionsRef.current = true;
+        const twelvelabs_quiz_questions = await generateChapterQuizQuestions(videoId, twelveLabsGeneratedContent.chapters, 'twelvelabs');
+        setTwelveLabsGeneratedContent(prev => ({
+          ...prev,
+          quiz_questions: twelvelabs_quiz_questions.data[Object.keys(twelvelabs_quiz_questions.data)[0]]
+        }));
+        setTwelveLabsDuration(prev => ({
+          ...prev,
+          quiz_questions: twelvelabs_quiz_questions.duration
+        }));
       }
-    };
-
-    // Skeleton loading components
-    const SkeletonLoader = ({ className = "" }) => (
-      <div className={`animate-pulse bg-gray-200 rounded ${className}`}></div>
-    );
-
-    const ContentSkeleton = ({ title, icon, color, description }) => (
-      <div className="bg-white rounded-lg border border-gray-200 p-6">
-        <h3 className="text-lg font-semibold text-gray-800 mb-1 flex items-center gap-2">
-          {icon}
-          {title}
-        </h3>
-        <p className="text-sm text-gray-500 mb-4">{description}</p>
-        <div className="space-y-3">
-          <SkeletonLoader className="h-12 w-full" />
-          <SkeletonLoader className="h-12 w-full" />
-          <SkeletonLoader className="h-12 w-full" />
-          <SkeletonLoader className="h-3/4" />
-        </div>
-      </div>
-    );
-
-    const Typewriter = ({ text, speed = 50, className = "" }) => {
-      if (!text) {
-        return null;
+      if (!twelveLabsQuizQuestionsRef.current && twelveLabsGeneratedContent.chapters && Array.isArray(twelveLabsGeneratedContent.chapters) && !twelveLabsGeneratedContent.quiz_questions) {
+        generateTwelveLabsQuizQuestions();
       }
 
-      const [displayText, setDisplayText] = useState('');
-      const [currentIndex, setCurrentIndex] = useState(0);
-      const [hasAnimated, setHasAnimated] = useState(false);
+    }, [twelveLabsGeneratedContent]);
 
-      useEffect(() => {
-        if (!text) return;
+    useEffect(() => {
+      console.log('google_generated_content updated:', googleGeneratedContent);
+      const generateGoogleQuizQuestions = async () => {
+        googleQuizQuestionsRef.current = true;
+        const google_quiz_questions = await generateChapterQuizQuestions(geminiFileId, googleGeneratedContent.chapters, 'google');
+        setGoogleGeneratedContent(prev => ({
+          ...prev,
+          quiz_questions: google_quiz_questions.data[Object.keys(google_quiz_questions.data)[0]]
+        }));
+        setTwelveLabsDuration(prev => ({
+          ...prev,
+          quiz_questions: google_quiz_questions.duration
+        }));
+      }
+      if (!googleQuizQuestionsRef.current && googleGeneratedContent.chapters && Array.isArray(googleGeneratedContent.chapters) && !googleGeneratedContent.quiz_questions) {
+        generateGoogleQuizQuestions();
+      }
+    }, [googleGeneratedContent]);
 
-        // If we've already animated this text, just show it immediately
-        if (hasAnimated) {
-          setDisplayText(text);
-          return;
-        }
-
-        if (currentIndex < text.length) {
-          const timer = setTimeout(() => {
-            setDisplayText(prev => prev + text[currentIndex]);
-            setCurrentIndex(prev => prev + 1);
-          }, speed);
-
-          return () => clearTimeout(timer);
-        } else if (currentIndex === text.length && !hasAnimated) {
-          // Animation completed
-          setHasAnimated(true);
-        }
-      }, [text, currentIndex, speed, hasAnimated]);
-
-      // Reset only when text actually changes to something different
-      useEffect(() => {
-        if (text && text !== displayText && !hasAnimated) {
-          setDisplayText('');
-          setCurrentIndex(0);
-          setHasAnimated(false);
-        }
-      }, [text]);
-
-      return (
-        <span className={className}>
-          {displayText}
-          {currentIndex < text.length && !hasAnimated && (
-            <span className="animate-pulse">|</span>
-          )}
-        </span>
-      );
-    };
-
-    // Cached Analysis Display Component - Memoized to prevent recreation
-    const CachedAnalysisDisplay = React.useMemo(() => {
-      return ({ title, hashtags, topics }) => {
-        // Ensure we have valid data before proceeding
-        const hasValidTitle = title && typeof title === 'string' && title.trim() !== '';
-        const hasValidHashtags = hashtags && Array.isArray(hashtags) && hashtags.length > 0;
-        const hasValidTopics = topics && Array.isArray(topics) && topics.length > 0;
-        
-        // Return null if there's no valid data to display
-        if (!hasValidTitle && !hasValidHashtags && !hasValidTopics) {
-          return null;
-        }
-
-        // Show everything immediately if already completed
-        if (titleCompleted && hashtagsCompleted && topicsCompleted) {
-          return (
-            <div className="mb-8">
-              {hasValidTitle && (
-                <h2 className="text-2xl font-bold text-gray-900 mb-2">
-                  {title}
-                </h2>
-              )}
-              {hasValidHashtags && (
-                <div className="flex flex-wrap gap-2 mb-2">
-                  {hashtags.map((hashtag, idx) => (
-                    <span key={idx} className="text-blue-700 bg-blue-100 px-3 py-1 rounded-full text-sm font-medium">#{hashtag}</span>
-                  ))}
-                </div>
-              )}
-              {hasValidTopics && (
-                <div className="flex flex-wrap gap-2">
-                  {topics.map((topic, idx) => (
-                    <span key={idx} className="bg-gray-200 text-gray-800 px-3 py-1 rounded-full text-sm font-medium">{topic}</span>
-                  ))}
-                </div>
-              )}
-            </div>
-          );
-        }
-
-        return (
-          <div className="mb-8">
-            {!titleCompleted && hasValidTitle && (
-              <h2 className="text-2xl font-bold text-gray-900 mb-2">
-                <Typewriter text={title} speed={30} className="inline-block" />
-              </h2>
-            )}
-            {!hashtagsCompleted && hasValidHashtags && (
-              <div className="flex flex-wrap gap-2 mb-2 animate-fade-in">
-                {hashtags.map((hashtag, idx) => (
-                  <span key={idx} className="text-blue-700 bg-blue-100 px-3 py-1 rounded-full text-sm font-medium">#{hashtag}</span>
-                ))}
-              </div>
-            )}
-            {!topicsCompleted && hasValidTopics && (
-              <div className="flex flex-wrap gap-2 animate-fade-in">
-                {topics.map((topic, idx) => (
-                  <span key={idx} className="bg-gray-200 text-gray-800 px-3 py-1 rounded-full text-sm font-medium">{topic}</span>
-                ))}
-              </div>
-            )}
-          </div>
-        );
-      };
-    }, [titleCompleted, hashtagsCompleted, topicsCompleted]);
+    useEffect(() => {
+      console.log('aws_generated_content updated:', awsGeneratedContent);
+      const generateAwsQuizQuestions = async () => {
+        awsQuizQuestionsRef.current = true;  
+        const aws_quiz_questions = await generateChapterQuizQuestions(s3Key, awsGeneratedContent.chapters, 'aws');
+          setAwsGeneratedContent(prev => ({
+            ...prev,
+            quiz_questions: aws_quiz_questions.data[Object.keys(aws_quiz_questions.data)[0]]
+          }));
+          setTwelveLabsDuration(prev => ({
+            ...prev,
+            quiz_questions: aws_quiz_questions.duration
+          }));
+      }
+      if (!awsQuizQuestionsRef && awsGeneratedContent.chapters && Array.isArray(awsGeneratedContent.chapters) && !awsGeneratedContent.quiz_questions) {
+        generateAwsQuizQuestions();
+      }
+    }, [awsGeneratedContent]);
 
     const handlePublish = async () => {
       setPublishing(true);
@@ -732,14 +830,16 @@ export default function InstructorCourseView({ videoId }) {
           },
           body: JSON.stringify({
             video_id: videoId,
-            summary: generatedContent.summary || '',
-            title: generatedTitle || videoData?.name,
-            chapters: generatedContent.chapters,
-            quiz_questions: generatedContent.quiz_questions,
-            key_takeaways: generatedContent.key_takeaways,
-            pacing_recommendations: generatedContent.pacing_recommendations,
-            engagement: generatedContent.engagement,
-            transcript: generatedContent.transcript,
+            gemini_file_id: geminiFileId,
+            s3_key: s3Key,
+            summary: twelveLabsGeneratedContent.summary || '',
+            title: twelveLabsGeneratedContent.gist.title || videoData?.name,
+            chapters: twelveLabsGeneratedContent.chapters,
+            quiz_questions: twelveLabsGeneratedContent.quiz_questions,
+            key_takeaways: twelveLabsGeneratedContent.key_takeaways,
+            pacing_recommendations: twelveLabsGeneratedContent.pacing_recommendations,
+            engagement: twelveLabsGeneratedContent.engagement,
+            transcript: twelveLabsGeneratedContent.transcript,
           }),
         });
 
@@ -841,29 +941,89 @@ export default function InstructorCourseView({ videoId }) {
       );
     }
 
+    // Quiz helper functions
+    const getCurrentQuizQuestions = () => {
+      switch (selectedQuizProvider) {
+        case 'twelvelabs':
+          return twelveLabsGeneratedContent.quiz_questions || [];
+        case 'google':
+          return googleGeneratedContent.quiz_questions || [];
+        case 'aws':
+          return awsGeneratedContent.quiz_questions || [];
+        default:
+          return [];
+      }
+    };
+
+    const getShuffledOptions = (questionIndex) => {
+      const questions = getCurrentQuizQuestions();
+      if (!questions[questionIndex]) return [];
+      
+      const question = questions[questionIndex];
+      const options = [question.answer, ...(question.wrong_answers || [])];
+      
+      if (!quizShuffledOptions[`${selectedQuizProvider}-${questionIndex}`]) {
+        const shuffled = shuffleArray([...options]);
+        setQuizShuffledOptions(prev => ({
+          ...prev,
+          [`${selectedQuizProvider}-${questionIndex}`]: shuffled
+        }));
+        return shuffled;
+      }
+      
+      return quizShuffledOptions[`${selectedQuizProvider}-${questionIndex}`];
+    };
+
+    const handleQuizProviderChange = (provider) => {
+      setSelectedQuizProvider(provider);
+      setCurrentQuizQuestionIndex(0);
+    };
+
+    const getProviderColor = (provider) => {
+      switch (provider) {
+        case 'twelvelabs':
+          return 'blue';
+        case 'google':
+          return 'green';
+        case 'aws':
+          return 'orange';
+        default:
+          return 'gray';
+      }
+    };
+
+    const getProviderName = (provider) => {
+      switch (provider) {
+        case 'twelvelabs':
+          return 'TwelveLabs';
+        case 'google':
+          return 'Google Gemini';
+        case 'aws':
+          return 'AWS Nova';
+        default:
+          return provider;
+      }
+    };
+
+    // Helper function to get the current transcript
+    const getCurrentTranscript = () => {
+      switch (selectedTranscriptProvider) {
+        case 'twelvelabs':
+          return twelveLabsGeneratedContent.transcript;
+        case 'google':
+          return googleGeneratedContent.transcript;
+        case 'aws':
+          return awsGeneratedContent.transcript;
+        default:
+          return '';
+      }
+    };
+
     return (
       <div className="h-screen bg-gradient-to-br from-white to-gray-50 flex flex-col">
         {/* Header */}
-        <div className="bg-white shadow-sm border-b flex-shrink-0">
-          <div className="max-w-7xl mx-auto px-6 py-4">
-            <div className="flex justify-between items-center">
-              <div>
-                <h1 className="text-2xl font-bold text-gray-800">{videoData.name}</h1>
-                <p className="text-gray-600 text-sm">Video ID: {videoId}</p>
-              </div>
-              <button
-                onClick={() => router.push('/dashboard/courses')}
-                className="px-4 py-2 bg-gray-500 text-white rounded-lg hover:bg-gray-600 transition-colors duration-200 flex items-center gap-2"
-              >
-                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 19l-7-7m0 0l7-7m-7 7h18" />
-                </svg>
-                Back to Courses
-              </button>
-            </div>
-          </div>
-        </div>
-
+        <VideoPreviewHeader videoData={videoData} videoId={videoId} />
+        
         <div className="flex flex-1 overflow-y-hidden">
           {/* Main Content Area */}
           <main className="flex-1 flex flex-col overflow-y-auto">
@@ -872,639 +1032,1023 @@ export default function InstructorCourseView({ videoId }) {
               <div className="w-full max-w-4xl">
                 <VideoPlayer videoData={videoData} onSeekTo={handleVideoSeekTo} onTimeUpdate={handleVideoTimeUpdate} />
               </div>
-
             </div>
-
-            {/* Transcription Section */}
-            {generatedContent.transcript && typeof generatedContent.transcript === 'string' && generatedContent.transcript.trim() !== '' && generatedContent.transcript !== 'TEST' ? (
-              <div className="bg-white border-b border-gray-200 p-4">
-                <div className="max-w-4xl mx-auto">
-                  <div className="flex items-center justify-between mb-3">
-                    <h3 className="text-lg font-semibold text-gray-800 flex items-center gap-2">
-                      <svg className="w-5 h-5 text-indigo-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            
+            {/* Transcript Section */}
+            <div className="bg-white border-b border-gray-200">
+              <div className="max-w-7xl mx-auto px-6 py-4">
+                <div className="flex items-center justify-between mb-4">
+                  <div className="flex items-center gap-3">
+                    <div className="w-8 h-8 bg-gradient-to-br from-indigo-500 to-purple-600 rounded-lg flex items-center justify-center">
+                      <svg className="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
                       </svg>
-                      Live Transcript
-                    </h3>
-                    <div className="flex items-center gap-4">
-                      <div className="text-sm text-gray-500">
-                        Current Time: {Math.floor(videoCurrentTime / 60)}:{(videoCurrentTime % 60).toFixed(0).padStart(2, '0')}
-                      </div>
-                      <button
-                        onClick={() => setShowTranscript(!showTranscript)}
-                        className="text-sm text-indigo-600 hover:text-indigo-800 font-medium flex items-center gap-1"
-                      >
-                        {showTranscript ? (
-                          <>
-                            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 15l7-7 7 7" />
-                            </svg>
-                            Hide
-                          </>
-                        ) : (
-                          <>
-                            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-                            </svg>
-                            Show
-                          </>
-                        )}
-                      </button>
+                    </div>
+                    <div>
+                      <h3 className="text-lg font-semibold text-gray-800">Live Transcript</h3>
+                      <p className="text-sm text-gray-600">Real-time transcription with timestamp navigation</p>
                     </div>
                   </div>
                   
-                  {showTranscript && (
-                    <div className="bg-gray-50 rounded-lg p-4 max-h-32 overflow-y-auto">
-                      <div className="flex flex-wrap gap-1 text-sm leading-relaxed">
-                        {(() => {
-                          // Parse the transcript string to extract words and visual descriptions
-                          const transcriptText = generatedContent.transcript || '';
-                          
-                          try {
-                            // Split by tags and process each part
-                            const parts = transcriptText.split(/(<word[^>]*>.*?<\/word>|<visual[^>]*>.*?<\/visual>)/g);
-                            
-                            return parts.map((part, index) => {
-                              // Check if it's a word tag
-                              const wordMatch = part.match(/<word[^>]*start_time="([^"]*)"[^>]*end_time="([^"]*)"[^>]*>(.*?)<\/word>/);
-                              if (wordMatch) {
-                                const [, startTime, endTime, word] = wordMatch;
-                                const isCurrentWord = videoCurrentTime >= parseFloat(startTime) && videoCurrentTime < parseFloat(endTime);
-                                const isPastWord = videoCurrentTime >= parseFloat(endTime);
-                                
-                                return (
-                                  <span
-                                    key={index}
-                                    className={`transition-all duration-200 ${
-                                      isCurrentWord
-                                        ? 'bg-indigo-500 text-white px-1 rounded font-semibold animate-pulse'
-                                        : isPastWord
-                                        ? 'text-gray-600'
-                                        : 'text-gray-400'
-                                    }`}
-                                  >
-                                    {word}
-                                  </span>
-                                );
-                              }
-                              
-                              // Check if it's a visual tag
-                              const visualMatch = part.match(/<visual[^>]*start_time="([^"]*)"[^>]*end_time="([^"]*)"[^>]*>(.*?)<\/visual>/);
-                              if (visualMatch) {
-                                const [, startTime, endTime, description] = visualMatch;
-                                const isCurrentVisual = videoCurrentTime >= parseFloat(startTime) && videoCurrentTime < parseFloat(endTime);
-                                
-                                return (
-                                  <span
-                                    key={index}
-                                    className={`inline-block transition-all duration-200 ${
-                                      isCurrentVisual
-                                        ? 'bg-yellow-500 text-white px-2 py-1 rounded font-medium animate-pulse'
-                                        : 'text-gray-500'
-                                    }`}
-                                  >
-                                    [Visual: {description}]
-                                  </span>
-                                );
-                              }
-                              
-                              // Regular text (spaces, punctuation, etc.)
-                              if (part.trim()) {
-                                return <span key={index} className="text-gray-400">{part}</span>;
-                              }
-                              
-                              return null;
-                            });
-                          } catch (error) {
-                            console.error('Error parsing transcript:', error);
-                            // Fallback: display the raw transcript text
-                            return (
-                              <span className="text-gray-600">
-                                {transcriptText}
-                              </span>
-                            );
-                          }
-                        })()}
-                      </div>
+                  <div className="flex items-center gap-4">
+                    {/* Provider Selector */}
+                    <div className="flex items-center gap-2">
+                      <span className="text-sm text-gray-600 font-medium">Provider:</span>
+                      <select 
+                        value={selectedTranscriptProvider}
+                        onChange={(e) => setSelectedTranscriptProvider(e.target.value)}
+                        className="px-3 py-1.5 border border-gray-300 rounded-lg bg-white text-sm text-gray-700 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+                      >
+                        <option value="twelvelabs">TwelveLabs</option>
+                        <option value="google">Google Gemini</option>
+                        <option value="aws">AWS Nova</option>
+                      </select>
                     </div>
-                  )}
+                    
+                    {/* Current Time Display */}
+                    <div className="text-sm text-gray-500 bg-gray-50 px-3 py-1.5 rounded-lg">
+                      <span className="font-medium">Current:</span> {Math.floor(videoCurrentTime / 60)}:{(videoCurrentTime % 60).toFixed(0).padStart(2, '0')}
+                    </div>
+                    
+                    {/* Toggle Button */}
+                    <button
+                      onClick={() => setShowTranscript(!showTranscript)}
+                      className="text-sm text-indigo-600 hover:text-indigo-800 font-medium flex items-center gap-2 px-3 py-1.5 bg-indigo-50 hover:bg-indigo-100 rounded-lg transition-colors"
+                    >
+                      {showTranscript ? (
+                        <>
+                          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 15l7-7 7 7" />
+                          </svg>
+                          Hide
+                        </>
+                      ) : (
+                        <>
+                          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                          </svg>
+                          Show
+                        </>
+                      )}
+                    </button>
+                  </div>
                 </div>
-              </div>
-            ) : null}
-
-            {/* Content Area Below Player */}
-            <div className="p-6">
-              <div className="max-w-6xl mx-auto">
-                {/* Cached Analysis Results */}
-                {(generatedTitle || (generatedHashtags && Array.isArray(generatedHashtags) && generatedHashtags.length > 0) || (generatedTopics && Array.isArray(generatedTopics) && generatedTopics.length > 0)) && (
-                  <CachedAnalysisDisplay 
-                    title={generatedTitle}
-                    hashtags={generatedHashtags}
-                    topics={generatedTopics}
-                  />
-                )}
-
-                {/* AI Generation Status */}
-                {isAnalyzing && (
-                  <div className="mb-8 bg-gradient-to-r from-blue-50 to-purple-50 rounded-xl p-6 border border-blue-200">
-                    <div className="flex items-center gap-4 mb-4">
-                      <div className="w-8 h-8 border-4 border-blue-500 border-t-transparent rounded-full animate-spin"></div>
-                      <div>
-                        <h2 className="text-xl font-bold text-blue-800">AI Content Generation in Progress</h2>
-                        <p className="text-blue-600">Analyzing your lecture video and generating comprehensive educational content...</p>
-                      </div>
-                    </div>
-                    
-                    {/* Progress Bar */}
-                    <div className="w-full bg-blue-200 rounded-full h-3 mb-3">
-                      <div 
-                        className="bg-gradient-to-r from-blue-500 to-purple-600 h-3 rounded-full transition-all duration-500 ease-out shadow-sm"
-                        style={{ 
-                          width: `${calculateProgress()}%` 
-                        }}
-                      ></div>
-                    </div>
-                    
-                    {/* Progress Text */}
-                    <div className="flex items-center justify-between text-sm text-blue-700">
-                      <span>Generating chapters, summaries, quizzes, and study materials...</span>
-                      <span className="font-medium">
-                        {calculateProgress()}% Complete
-                      </span>
-                    </div>
-                  </div>
-                )}
-
-                {/* AI Content Generated Success */}
-                {!isAnalyzing && calculateProgress() === 100 && (
-                  <div className="mb-8 bg-gradient-to-r from-green-50 to-emerald-50 rounded-xl p-6 border border-green-200">
-                    <div className="flex items-center gap-4 mb-4">
-                      <div className="w-8 h-8 bg-green-500 rounded-full flex items-center justify-center">
-                        <svg className="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-                        </svg>
-                      </div>
-                      <div>
-                        <h2 className="text-xl font-bold text-green-800">AI Content Generated</h2>
-                        <p className="text-green-600">Your lecture has been successfully analyzed and all educational content is ready!</p>
-                      </div>
-                    </div>
-                    
-                    {/* Progress Bar - Full */}
-                    <div className="w-full bg-green-200 rounded-full h-3 mb-3">
-                      <div 
-                        className="bg-gradient-to-r from-green-500 to-emerald-600 h-3 rounded-full transition-all duration-500 ease-out shadow-sm"
-                        style={{ 
-                          width: '100%' 
-                        }}
-                      ></div>
-                    </div>
-                    
-                    {/* Success Text */}
-                    <div className="flex items-center justify-between text-sm text-green-700">
-                      <span>All content generated successfully - ready for publishing</span>
-                      <span className="font-medium">
-                        100% Complete
-                      </span>
-                    </div>
-                  </div>
-                )}
-
-                {/* Content Sections */}
-                <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                  {/* Video Summary */}
-                  {generatedContent.summary ? (
-                    <div className="bg-white rounded-lg border border-gray-200 p-6">
-                      <h3 className="text-lg font-semibold text-gray-800 mb-1 flex items-center gap-2">
-                        <svg className="w-5 h-5 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-                        </svg>
-                        Video Summary
-                      </h3>
-                      <p className="text-sm text-gray-500 mb-4">Comprehensive overview of the lecture content and key points covered</p>
-                      <div className="space-y-3">
-                        <p className="text-gray-700">{generatedContent.summary}</p>
-                      </div>
-                    </div>
-                  ) : (
-                    <ContentSkeleton 
-                      title="Video Summary"
-                      icon={<svg className="w-5 h-5 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-                      </svg>}
-                      color="green"
-                      description="Comprehensive overview of the lecture content and key points covered"
-                    />
-                  )}
-
-                  {/* Key Takeaways */}
-                  {generatedContent.key_takeaways && Array.isArray(generatedContent.key_takeaways) && generatedContent.key_takeaways.length > 0 ? (
-                    <div className="bg-white rounded-lg border border-gray-200 p-6">
-                      <h3 className="text-lg font-semibold text-gray-800 mb-1 flex items-center gap-2">
-                        <svg className="w-5 h-5 text-purple-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z" />
-                        </svg>
-                        Key Takeaways
-                      </h3>
-                      <p className="text-sm text-gray-500 mb-4">Essential concepts and insights to remember from this lecture</p>
-                      <div className="space-y-3">
-                        {generatedContent.key_takeaways.map((keyTakeaway, index) => (
-                          <div className="flex items-start gap-3" key={index}> 
-                            <div className="w-2 h-2 bg-purple-500 rounded-full mt-2 flex-shrink-0"></div>
-                            <p className="text-gray-700">{keyTakeaway}</p>
-                          </div>
-                        ))}
+                
+                {showTranscript && (
+                  <div className="bg-gradient-to-r from-gray-50 to-gray-100 rounded-xl p-4 border border-gray-200">
+                    <div className="max-h-48 overflow-y-auto">
+                      {(() => {
+                        const currentTranscript = getCurrentTranscript();
                         
-                      </div>
-                    </div>
-                  ) : (
-                    <ContentSkeleton 
-                      title="Key Takeaways"
-                      icon={<svg className="w-5 h-5 text-purple-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z" />
-                      </svg>}
-                      color="purple"
-                      description="Essential concepts and insights to remember from this lecture"
-                    />
-                  )}
-
-                  {/* Pacing Recommendations */}
-                  {generatedContent.pacing_recommendations && Array.isArray(generatedContent.pacing_recommendations) && generatedContent.pacing_recommendations.length > 0 ? (
-                    <div className="bg-white rounded-lg border border-gray-200 p-6">
-                      <h3 className="text-lg font-semibold text-gray-800 mb-1 flex items-center gap-2">
-                        <svg className="w-5 h-5 text-orange-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
-                        </svg>
-                        Pacing Recommendations
-                      </h3>
-                      <p className="text-sm text-gray-500 mb-4">Suggested study schedule and time allocation for optimal learning</p>
-                      <div className="space-y-3">
-                        {generatedContent.pacing_recommendations.map((pacingRecommendation, index) => (
-                          <div className="flex flex-col p-4 bg-orange-50 rounded-lg space-y-2" key={index}>
-                            <div className="flex items-center justify-between">
-                              <div className="flex items-center space-x-2">
-                                <svg className="w-4 h-4 text-orange-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
-                                </svg>
-                                <span className="text-sm text-orange-600">
-                                  {Math.floor(pacingRecommendation.start_time / 60)}:{String(Math.floor(pacingRecommendation.start_time % 60)).padStart(2, '0')}
-                                </span>
-                              </div>
-                              <span className={`text-sm font-medium px-2 py-1 rounded ${
-                                pacingRecommendation.severity === 'High' ? 'bg-red-100 text-red-700' :
-                                pacingRecommendation.severity === 'Medium' ? 'bg-yellow-100 text-yellow-700' :
-                                'bg-green-100 text-green-700'
-                              }`}>
-                                {pacingRecommendation.severity}
-                              </span>
-                            </div>
-                            <p className="text-gray-700">{pacingRecommendation.recommendation}</p>
-                          </div>
-                        ))}
-                        
-                      </div>
-                    </div>
-                  ) : (
-                    <ContentSkeleton 
-                      title="Pacing Recommendations"
-                      icon={<svg className="w-5 h-5 text-orange-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
-                      </svg>}
-                      color="orange"
-                      description="Suggested study schedule and time allocation for optimal learning"
-                    />
-                  )}
-
-                  {/* Engagement Events */}
-                  {generatedContent.engagement && Array.isArray(generatedContent.engagement) && generatedContent.engagement.length > 0 ? (
-                    <div className="bg-white rounded-lg border border-gray-200 p-6">
-                      <h3 className="text-lg font-semibold text-gray-800 mb-1 flex items-center gap-2">
-                        <svg className="w-5 h-5 text-pink-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M14.828 14.828a4 4 0 01-5.656 0M9 10h1m4 0h1m-6 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                        </svg>
-                        Student Engagement Events
-                      </h3>
-                      <p className="text-sm text-gray-500 mb-4">Key moments of student engagement and emotional responses during the lecture</p>
-                      <div className="space-y-4">
-                        {generatedContent.engagement.map((engagement, index) => {
-                          // Define emotion colors and icons
-                          const emotionConfig = {
-                            happy: { color: 'green', bgColor: 'green-50', borderColor: 'green-200', icon: '😊' },
-                            sad: { color: 'blue', bgColor: 'blue-50', borderColor: 'blue-200', icon: '😢' },
-                            angry: { color: 'red', bgColor: 'red-50', borderColor: 'red-200', icon: '😠' },
-                            surprised: { color: 'yellow', bgColor: 'yellow-50', borderColor: 'yellow-200', icon: '😲' },
-                            confused: { color: 'purple', bgColor: 'purple-50', borderColor: 'purple-200', icon: '😕' },
-                            bored: { color: 'gray', bgColor: 'purple-50', borderColor: 'purple-200', icon: '😴' }
-                          };
-                          
-                          const config = emotionConfig[engagement.emotion.toLowerCase()] || emotionConfig.confused;
-                          
+                        if (!currentTranscript || currentTranscript.trim() === '') {
                           return (
-                            <div key={index} className={`p-4 rounded-lg border-2 ${config.bgColor} ${config.borderColor}`}>
-                              <div className="flex items-start justify-between mb-3">
-                                <div className="flex items-center gap-3">
-                                  <span className="text-2xl">{config.icon}</span>
-                                  <div>
-                                    <h4 className="font-semibold text-gray-800 capitalize">{engagement.emotion}</h4>
-                                    <div className="flex items-center gap-2 mt-1">
-                                      <span className="text-sm text-gray-600">Engagement Level:</span>
-                                      <div className="flex gap-1">
-                                        {[1, 2, 3, 4, 5].map((level) => (
-                                          <div
-                                            key={level}
-                                            className={`w-3 h-3 rounded-full ${
-                                              level <= engagement.engagement_level
-                                                ? `bg-${config.color}-500`
-                                                : 'bg-gray-200'
-                                            }`}
-                                          />
-                                        ))}
-                                      </div>
-                                      <span className="text-sm font-medium text-gray-700">({engagement.engagement_level}/5)</span>
-                                    </div>
-                                  </div>
-                                </div>
-                                <div className="text-right">
-                                  <span className="text-sm font-medium text-gray-600 bg-white px-2 py-1 rounded border">
-                                    {engagement.timestamp}
-                                  </span>
-                                </div>
+                            <div className="text-center py-8">
+                              <div className="w-12 h-12 bg-gray-200 rounded-full flex items-center justify-center mx-auto mb-3">
+                                <svg className="w-6 h-6 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
+                                </svg>
                               </div>
-                              
-                              <div className="space-y-2">
-                                <div>
-                                  <h5 className="text-sm font-medium text-gray-700 mb-1">What happened:</h5>
-                                  <p className="text-sm text-gray-600 bg-white p-2 rounded border">
-                                    {engagement.description}
-                                  </p>
-                                </div>
-                                
-                                <div>
-                                  <h5 className="text-sm font-medium text-gray-700 mb-1">Why it occurred:</h5>
-                                  <p className="text-sm text-gray-600 bg-white p-2 rounded border">
-                                    {engagement.reason}
-                                  </p>
-                                </div>
+                              <p className="text-gray-500 text-sm">Transcript will appear here once processing is complete</p>
+                              <div className="flex items-center justify-center gap-2 mt-2">
+                                <div className="w-2 h-2 bg-indigo-500 rounded-full animate-pulse"></div>
+                                <span className="text-xs text-indigo-600">Processing...</span>
                               </div>
                             </div>
                           );
-                        })}
-                      </div>
-                    </div>
-                  ) : (
-                    <ContentSkeleton 
-                      title="Student Engagement Events"
-                      icon={<svg className="w-5 h-5 text-pink-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M14.828 14.828a4 4 0 01-5.656 0M9 10h1m4 0h1m-6 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                      </svg>}
-                      color="pink"
-                      description="Key moments of student engagement and emotional responses during the lecture"
-                    />
-                  )}
-                </div>
+                        }
 
-                {/* Chapters Section - Full Width */}
-                {generatedContent.chapters && generatedContent.chapters.length > 0 && (
-                  <div className="mt-8">
-                    <div className="bg-white rounded-lg border border-gray-200 p-6">
-                      <h3 className="text-lg font-semibold text-gray-800 mb-4 flex items-center gap-2">
-                        <svg className="w-5 h-5 text-indigo-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-                        </svg>
-                        Lecture Quiz (By Chapter)
-                      </h3>
-                      <p className="text-sm text-gray-500 mb-6">Detailed breakdown of lecture sections with summaries and timestamps</p>
-                      
-                      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                        {generatedContent.chapters.map((chapter) => (
-                          <div key={chapter.chapter_id + 'chapter'}>
-                             <div
-                              key={chapter.chapter_id}
-                              className={`rounded-lg p-4 border transition-colors duration-200 cursor-pointer ${
-                                videoCurrentTime >= chapter.start_time && videoCurrentTime < chapter.end_time
-                                  ? 'bg-indigo-50 border-indigo-300'
-                                  : 'bg-gray-50 border-gray-200 hover:border-indigo-300'
-                              }`}
-                              onClick={() => handleChapterClick(chapter.start_time, chapter.chapter_id)}
-                            >
-                              <div className="flex items-start justify-between mb-2">
-                                <h4 className="font-medium text-gray-800 text-sm">{chapter.title}</h4>
-                                <span className="text-xs text-gray-500 bg-white px-2 py-1 rounded">
-                                  {Math.floor(chapter.start_time / 60)}:{(chapter.start_time % 60).toString().padStart(2, '0')}
-                                </span>
-                              </div>
-                              <p className="text-xs text-gray-600 line-clamp-3">
-                                {chapter.summary}
-                              </p>
-                              <div className="mt-3 pt-2 border-t border-gray-200">
-                                <span className="text-xs text-gray-500">
-                                  Duration: {Math.floor((chapter.end_time - chapter.start_time) / 60)}:{((chapter.end_time - chapter.start_time) % 60).toString().padStart(2, '0')}
-                                </span>
-                              </div>
-                            </div>
-                          </div>
-                        ))}
-                      </div>
-
-                      {/* Quiz Questions Display - Full Width */}
-                      {quizChapterSelect && generatedContent.quiz_questions && (
-                        <div className="mt-8 w-full p-6 bg-white border border-gray-200 rounded-lg shadow-sm">
-                          {(() => {
-                            const selectedChapter = generatedContent.chapters?.find(ch => ch.chapter_id === quizChapterSelect);
-                            const chapterQuestions = generatedContent.quiz_questions.filter(q => q.chapter_id === quizChapterSelect);
-                            
-                            return (
-                              <div>
-                                <div className="flex items-center justify-between mb-6">
-                                  <h4 className="text-xl font-semibold text-gray-800 flex items-center gap-2">
-                                    <svg className="w-6 h-6 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8.228 9c.549-1.165 2.03-2 3.772-2 2.21 0 4 1.343 4 3 0 1.4-1.278 2.575-3.006 2.907-.542.104-.994.54-.994 1.093m0 3h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                                    </svg>
-                                    Quiz Questions - {selectedChapter?.title || 'Chapter'}
-                                  </h4>
-                                  <div className="flex items-center gap-4">
-                                    <span className="text-sm text-gray-500 bg-gray-100 px-3 py-1 rounded-full">
-                                      {chapterQuestions.length} questions
-                                    </span>
-                                    <button 
-                                      onClick={() => setQuizChapterSelect(null)}
-                                      disabled={!quizChapterSelect}
-                                      className="text-gray-400 hover:text-gray-600 transition-colors"
+                        try {
+                          // Parse the transcript string to extract words and visual descriptions
+                          const parts = currentTranscript.split(/(<word[^>]*>.*?<\/word>|<visual[^>]*>.*?<\/visual>)/g);
+                          
+                          return (
+                            <div className="flex flex-wrap gap-1 text-sm leading-relaxed">
+                              {parts.map((part, index) => {
+                                // Check if it's a word tag
+                                const wordMatch = part.match(/<word[^>]*start_time="([^"]*)"[^>]*end_time="([^"]*)"[^>]*>(.*?)<\/word>/);
+                                if (wordMatch) {
+                                  const [, startTime, endTime, word] = wordMatch;
+                                  const startTimeNum = parseFloat(startTime);
+                                  const endTimeNum = parseFloat(endTime);
+                                  const isCurrentWord = videoCurrentTime >= startTimeNum && videoCurrentTime < endTimeNum;
+                                  const isPastWord = videoCurrentTime >= endTimeNum;
+                                  
+                                  return (
+                                    <span
+                                      key={index}
+                                      className={`transition-all duration-200 cursor-pointer hover:bg-gray-200 rounded px-1 ${
+                                        isCurrentWord
+                                          ? 'bg-indigo-500 text-white font-semibold animate-pulse shadow-sm'
+                                          : isPastWord
+                                          ? 'text-gray-700'
+                                          : 'text-gray-400'
+                                      }`}
+                                      onClick={() => handleVideoSeekTo && handleVideoSeekTo(startTimeNum)}
+                                      title={`Click to jump to ${Math.floor(startTimeNum / 60)}:${(startTimeNum % 60).toString().padStart(2, '0')}`}
                                     >
-                                      <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                                      </svg>
-                                    </button>
-                                  </div>
-                                </div>
+                                      {word}
+                                    </span>
+                                  );
+                                }
                                 
-                                {chapterQuestions.length > 0 ? (
-                                  <div className="space-y-6">
-                                    {chapterQuestions.map((question, questionIndex) => {
-                                      // Use stored shuffled options or create them if not available
-                                      const optionsKey = `${quizChapterSelect}-${questionIndex}`;
-                                      let shuffledOptions = shuffledOptionsMap[optionsKey];
-                                      
-                                      // Always start with unshuffled options for consistent server/client rendering
-                                      if (!shuffledOptions) {
-                                        shuffledOptions = [question.answer, ...question.wrong_answers];
-                                      }
-                                      
-                                      // Create shuffled options on client side if not already done
-                                      if (typeof window !== 'undefined' && !shuffledOptionsMap[optionsKey]) {
-                                        // Fallback: create and store shuffled options
-                                        const allOptions = [question.answer, ...question.wrong_answers];
-                                        shuffledOptions = shuffleArray(allOptions);
-                                        setShuffledOptionsMap(prev => ({
-                                          ...prev,
-                                          [optionsKey]: shuffledOptions
-                                        }));
-                                      }
-                                      
-                                      const correctOptionIndex = shuffledOptions.indexOf(question.answer);
-                                      const optionLabels = ['A', 'B', 'C', 'D'];
-                                      
-                                      return (
-                                        <div key={`${quizChapterSelect}-${questionIndex}`} className="bg-gray-50 rounded-lg p-6 border border-gray-200">
-                                          <div className="flex items-start gap-4 mb-4">
-                                            <div className="flex-shrink-0 w-8 h-8 bg-green-100 text-green-700 rounded-full flex items-center justify-center text-sm font-semibold">
-                                              {questionIndex + 1}
-                                            </div>
-                                            <div className="flex-1">
-                                              <h5 className="font-medium text-gray-800 text-lg mb-4">{question.question}</h5>
-                                              
-                                              <div className="space-y-3">
-                                                {shuffledOptions.map((option, optionIndex) => (
-                                                  <div 
-                                                    key={optionIndex}
-                                                    className={`p-4 rounded-lg border-2 transition-all ${
-                                                      optionIndex === correctOptionIndex
-                                                        ? 'bg-green-50 border-green-300 text-green-800'
-                                                        : 'bg-white border-gray-200 text-gray-700 hover:border-gray-300'
-                                                    }`}
-                                                  >
-                                                    <div className="flex items-center gap-3">
-                                                      <div className={`flex-shrink-0 w-6 h-6 rounded-full flex items-center justify-center text-sm font-semibold ${
-                                                        optionIndex === correctOptionIndex
-                                                          ? 'bg-green-500 text-white'
-                                                          : 'bg-gray-200 text-gray-600'
-                                                      }`}>
-                                                        {optionLabels[optionIndex]}
-                                                      </div>
-                                                      <span className="font-medium">{option}</span>
-                                                      {optionIndex === correctOptionIndex && (
-                                                        <div className="ml-auto">
-                                                          <svg className="w-5 h-5 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-                                                          </svg>
-                                                        </div>
-                                                      )}
-                                                    </div>
-                                                  </div>
-                                                ))}
-                                              </div>
-                                              
-                                              {/* Hint Section */}
-                                              {question.hint && (
-                                                <div className="mt-4 p-3 bg-blue-50 border border-blue-200 rounded-lg">
-                                                  <div className="flex items-center gap-2 mb-2">
-                                                    <svg className="w-4 h-4 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                                                    </svg>
-                                                    <span className="text-sm font-semibold text-blue-700">Hint</span>
-                                                  </div>
-                                                  <p className="text-sm text-blue-800">{question.hint}</p>
-                                                </div>
-                                              )}
-                                              
-                                              {/* Answer Explanation Section */}
-                                              {question.answer_explanation && (
-                                                <div className="mt-4 p-3 bg-green-50 border border-green-200 rounded-lg">
-                                                  <div className="flex items-center gap-2 mb-2">
-                                                    <svg className="w-4 h-4 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
-                                                    </svg>
-                                                    <span className="text-sm font-semibold text-green-700">Correct Answer: {optionLabels[correctOptionIndex]}</span>
-                                                  </div>
-                                                  <p className="text-sm text-green-800 mb-2">{question.answer_explanation}</p>
-                                                </div>
-                                              )}
-                                            </div>
-                                          </div>
-                                        </div>
-                                      );
-                                    })}
-                                  </div>
-                                ) : (
-                                  <div className="text-center py-12">
-                                    <svg className="w-16 h-16 text-gray-400 mx-auto mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8.228 9c.549-1.165 2.03-2 3.772-2 2.21 0 4 1.343 4 3 0 1.4-1.278 2.575-3.006 2.907-.542.104-.994.54-.994 1.093m0 3h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                                    </svg>
-                                    <h3 className="text-lg font-semibold text-gray-800 mb-2">No Quiz Questions Available</h3>
-                                    <p className="text-gray-500 text-sm">No quiz questions have been generated for this chapter yet.</p>
-                                  </div>
-                                )}
-                              </div>
-                            );
-                          })()}
+                                // Check if it's a visual tag
+                                const visualMatch = part.match(/<visual[^>]*start_time="([^"]*)"[^>]*end_time="([^"]*)"[^>]*>(.*?)<\/visual>/);
+                                if (visualMatch) {
+                                  const [, startTime, endTime, description] = visualMatch;
+                                  const startTimeNum = parseFloat(startTime);
+                                  const endTimeNum = parseFloat(endTime);
+                                  const isCurrentVisual = videoCurrentTime >= startTimeNum && videoCurrentTime < endTimeNum;
+                                  
+                                  return (
+                                    <span
+                                      key={index}
+                                      className={`inline-block transition-all duration-200 cursor-pointer hover:bg-yellow-200 rounded px-2 py-1 text-xs font-medium ${
+                                        isCurrentVisual
+                                          ? 'bg-yellow-500 text-white animate-pulse shadow-sm'
+                                          : 'text-gray-500 bg-yellow-50'
+                                      }`}
+                                      onClick={() => handleVideoSeekTo && handleVideoSeekTo(startTimeNum)}
+                                      title={`Click to jump to ${Math.floor(startTimeNum / 60)}:${(startTimeNum % 60).toString().padStart(2, '0')}`}
+                                    >
+                                      [Visual: {description}]
+                                    </span>
+                                  );
+                                }
+                                
+                                // Regular text (spaces, punctuation, etc.)
+                                if (part.trim()) {
+                                  return <span key={index} className="text-gray-400">{part}</span>;
+                                }
+                                
+                                return null;
+                              })}
+                            </div>
+                          );
+                        } catch (error) {
+                          console.error('Error parsing transcript:', error);
+                          // Fallback: display the raw transcript text
+                          return (
+                            <div className="text-gray-700 leading-relaxed">
+                              {currentTranscript}
+                            </div>
+                          );
+                        }
+                      })()}
+                    </div>
+                    
+                    {/* Transcript Stats */}
+                    <div className="mt-3 pt-3 border-t border-gray-200">
+                      <div className="flex items-center justify-between text-xs text-gray-500">
+                        <div className="flex items-center gap-4">
+                          <span>Provider: {getProviderName(selectedTranscriptProvider)}</span>
+                          <span>Words: {(() => {
+                            const transcript = getCurrentTranscript();
+                            if (!transcript) return 0;
+                            const wordMatches = transcript.match(/<word[^>]*>.*?<\/word>/g);
+                            return wordMatches ? wordMatches.length : 0;
+                          })()}</span>
                         </div>
-                      )}
+                        <div className="flex items-center gap-2">
+                          <div className="w-2 h-2 bg-green-500 rounded-full"></div>
+                          <span>Live</span>
+                        </div>
+                      </div>
                     </div>
                   </div>
                 )}
               </div>
             </div>
 
-            {/* Publish Button Section */}
-            <div className="mt-8 p-6 bg-white border border-gray-200 rounded-lg shadow-sm">
-              <div className="flex items-center justify-between">
-                <div>
-                  <h3 className="text-lg font-semibold text-gray-800 mb-2">Ready to Publish?</h3>
-                  <p className="text-sm text-gray-600">
-                    Publish this course to make it available to your students. All generated content will be included.
-                  </p>
-                </div>
-                <button
-                  onClick={handlePublish}
-                  disabled={publishing || !generatedContent.chapters}
-                  className={`px-6 py-3 rounded-lg font-medium transition-all duration-200 flex items-center gap-2 ${
-                    publishing || !generatedContent.chapters
-                      ? 'bg-gray-300 text-gray-500 cursor-not-allowed'
-                      : 'bg-green-600 text-white hover:bg-green-700 shadow-md hover:shadow-lg'
-                  }`}
-                >
-                  {publishing ? (
-                    <>
-                      <svg className="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24">
-                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+            {/* Content Area Below Player */}
+            <div className="p-6">
+              <div className="max-w-7xl mx-auto">
+                {/* Video Title & Metadata Section */}
+                <div className="mb-8 bg-white rounded-xl border border-gray-200 shadow-lg p-6">
+                  <div className="flex items-center gap-3 mb-6">
+                    <div className="w-10 h-10 bg-gradient-to-br from-purple-500 to-pink-600 rounded-xl flex items-center justify-center">
+                      <svg className="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 4V2a1 1 0 011-1h8a1 1 0 011 1v2m-9 0h10m-10 0a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V6a2 2 0 00-2-2M9 12l2 2 4-4" />
                       </svg>
-                      Publishing...
-                    </>
-                  ) : (
-                    <>
-                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" />
-                      </svg>
-                      Publish Course
-                    </>
-                  )}
-                </button>
-              </div>
-              
-              {!generatedContent.chapters && (
-                <div className="mt-4 p-3 bg-yellow-50 border border-yellow-200 rounded-lg">
-                  <div className="flex items-center gap-2">
-                    <svg className="w-4 h-4 text-yellow-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L3.732 16.5c-.77.833.192 2.5 1.732 2.5z" />
-                    </svg>
-                    <span className="text-sm text-yellow-700">
-                      Generate content first before publishing
-                    </span>
+                    </div>
+                    <div>
+                      <h3 className="text-xl font-bold text-gray-800">Proposed Video Title & Metadata</h3>
+                      <p className="text-gray-600">AI-generated title, hashtags, and topics for your video</p>
+                    </div>
+                  </div>
+                  
+                  <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                    {/* TwelveLabs Gist */}
+                    <div className="bg-gradient-to-r from-blue-50 to-indigo-50 rounded-xl p-4 border border-blue-200">
+                      <div className="flex items-center justify-between mb-3">
+                        <div className="flex items-center gap-2">
+                          <div className="w-8 h-8 bg-gradient-to-br from-blue-500 to-blue-600 rounded-lg flex items-center justify-center">
+                            <svg className="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z" />
+                            </svg>
+                          </div>
+                          <span className="font-semibold text-blue-800">TwelveLabs</span>
+                        </div>
+                        {twelveLabsGeneratedContent.gist ? (
+                          <span className="text-xs bg-green-100 text-green-700 px-2 py-1 rounded-full font-medium">✓ Complete</span>
+                        ) : (
+                          <div className="flex items-center gap-1">
+                            <div className="w-2 h-2 bg-blue-500 rounded-full animate-pulse"></div>
+                            <span className="text-xs text-blue-600 font-medium">Processing...</span>
+                          </div>
+                        )}
+                      </div>
+                      {renderContent(twelveLabsGeneratedContent.gist, 'gist', 'twelvelabs')}
+                    </div>
+
+                    {/* Google Gist */}
+                    <div className="bg-gradient-to-r from-green-50 to-emerald-50 rounded-xl p-4 border border-green-200">
+                      <div className="flex items-center justify-between mb-3">
+                        <div className="flex items-center gap-2">
+                          <div className="w-8 h-8 bg-gradient-to-br from-green-500 to-green-600 rounded-lg flex items-center justify-center">
+                            <svg className="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z" />
+                            </svg>
+                          </div>
+                          <span className="font-semibold text-green-800">Google Gemini</span>
+                        </div>
+                        {googleGeneratedContent.gist ? (
+                          <span className="text-xs bg-green-100 text-green-700 px-2 py-1 rounded-full font-medium">✓ Complete</span>
+                        ) : (
+                          <div className="flex items-center gap-1">
+                            <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse"></div>
+                            <span className="text-xs text-green-600 font-medium">Processing...</span>
+                          </div>
+                        )}
+                      </div>
+                      {renderContent(googleGeneratedContent.gist, 'gist', 'google')}
+                    </div>
+
+                    {/* AWS Gist */}
+                    <div className="bg-gradient-to-r from-orange-50 to-amber-50 rounded-xl p-4 border border-orange-200">
+                      <div className="flex items-center justify-between mb-3">
+                        <div className="flex items-center gap-2">
+                          <div className="w-8 h-8 bg-gradient-to-br from-orange-500 to-orange-600 rounded-lg flex items-center justify-center">
+                            <svg className="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z" />
+                            </svg>
+                          </div>
+                          <span className="font-semibold text-orange-800">AWS Nova</span>
+                        </div>
+                        {awsGeneratedContent.gist ? (
+                          <span className="text-xs bg-green-100 text-green-700 px-2 py-1 rounded-full font-medium">✓ Complete</span>
+                        ) : (
+                          <div className="flex items-center gap-1">
+                            <div className="w-2 h-2 bg-orange-500 rounded-full animate-pulse"></div>
+                            <span className="text-xs text-orange-600 font-medium">Processing...</span>
+                          </div>
+                        )}
+                      </div>
+                      {renderContent(awsGeneratedContent.gist, 'gist', 'aws')}
+                    </div>
                   </div>
                 </div>
-              )}
+
+                {/* Provider Comparison Header */}
+                <div className="mb-8">
+                  <h2 className="text-3xl font-bold text-gray-800 mb-3">AI Provider Analysis Dashboard</h2>
+                  <p className="text-gray-600 text-lg">Compare comprehensive analysis results from leading AI providers</p>
+                </div>
+
+                {/* Vertical Sections with Provider Comparison */}
+                <div className="space-y-8">
+                  {/* Key Takeaways Section */}
+                  <div className="bg-white rounded-xl border border-gray-200 shadow-lg p-6">
+                    <div className="flex items-center gap-3 mb-6">
+                      <div className="w-10 h-10 bg-gradient-to-br from-green-500 to-emerald-600 rounded-xl flex items-center justify-center">
+                        <svg className="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                        </svg>
+                      </div>
+                      <div>
+                        <h3 className="text-xl font-bold text-gray-800">Key Learning Points</h3>
+                        <p className="text-gray-600">Essential concepts and takeaways from the lecture</p>
+                      </div>
+                    </div>
+                    
+                    <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                      {/* TwelveLabs Takeaways */}
+                      <div className="bg-gradient-to-r from-blue-50 to-indigo-50 rounded-xl p-4 border border-blue-200">
+                        <div className="flex items-center justify-between mb-3">
+                          <div className="flex items-center gap-2">
+                            <div className="w-8 h-8 bg-gradient-to-br from-blue-500 to-blue-600 rounded-lg flex items-center justify-center">
+                              <svg className="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z" />
+                              </svg>
+                            </div>
+                            <span className="font-semibold text-blue-800">TwelveLabs</span>
+                          </div>
+                          {twelveLabsGeneratedContent.key_takeaways ? (
+                            <span className="text-xs bg-green-100 text-green-700 px-2 py-1 rounded-full font-medium">
+                              {Array.isArray(twelveLabsGeneratedContent.key_takeaways) ? twelveLabsGeneratedContent.key_takeaways.length : 'Unknown'} points
+                            </span>
+                          ) : (
+                            <div className="flex items-center gap-1">
+                              <div className="w-2 h-2 bg-blue-500 rounded-full animate-pulse"></div>
+                              <span className="text-xs text-blue-600 font-medium">Processing...</span>
+                            </div>
+                          )}
+                        </div>
+                        {renderContent(twelveLabsGeneratedContent.key_takeaways, 'key_takeaways', 'twelvelabs')}
+                      </div>
+
+                      {/* Google Takeaways */}
+                      <div className="bg-gradient-to-r from-green-50 to-emerald-50 rounded-xl p-4 border border-green-200">
+                        <div className="flex items-center justify-between mb-3">
+                          <div className="flex items-center gap-2">
+                            <div className="w-8 h-8 bg-gradient-to-br from-green-500 to-green-600 rounded-lg flex items-center justify-center">
+                              <svg className="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z" />
+                              </svg>
+                            </div>
+                            <span className="font-semibold text-green-800">Google Gemini</span>
+                          </div>
+                          {googleGeneratedContent.key_takeaways ? (
+                            <span className="text-xs bg-green-100 text-green-700 px-2 py-1 rounded-full font-medium">
+                              {Array.isArray(googleGeneratedContent.key_takeaways) ? googleGeneratedContent.key_takeaways.length : 'Unknown'} points
+                            </span>
+                          ) : (
+                            <div className="flex items-center gap-1">
+                              <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse"></div>
+                              <span className="text-xs text-green-600 font-medium">Processing...</span>
+                            </div>
+                          )}
+                        </div>
+                        {renderContent(googleGeneratedContent.key_takeaways, 'key_takeaways', 'google')}
+                      </div>
+
+                      {/* AWS Takeaways */}
+                      <div className="bg-gradient-to-r from-orange-50 to-amber-50 rounded-xl p-4 border border-orange-200">
+                        <div className="flex items-center justify-between mb-3">
+                          <div className="flex items-center gap-2">
+                            <div className="w-8 h-8 bg-gradient-to-br from-orange-500 to-orange-600 rounded-lg flex items-center justify-center">
+                              <svg className="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z" />
+                              </svg>
+                            </div>
+                            <span className="font-semibold text-orange-800">AWS Nova</span>
+                          </div>
+                          {awsGeneratedContent.key_takeaways ? (
+                            <span className="text-xs bg-green-100 text-green-700 px-2 py-1 rounded-full font-medium">
+                              {Array.isArray(awsGeneratedContent.key_takeaways) ? awsGeneratedContent.key_takeaways.length : 'Unknown'} points
+                            </span>
+                          ) : (
+                            <div className="flex items-center gap-1">
+                              <div className="w-2 h-2 bg-orange-500 rounded-full animate-pulse"></div>
+                              <span className="text-xs text-orange-600 font-medium">Processing...</span>
+                            </div>
+                          )}
+                        </div>
+                        {renderContent(awsGeneratedContent.key_takeaways, 'key_takeaways', 'aws')}
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Pacing Recommendations Section */}
+                  <div className="bg-white rounded-xl border border-gray-200 shadow-lg p-6">
+                    <div className="flex items-center gap-3 mb-6">
+                      <div className="w-10 h-10 bg-gradient-to-br from-orange-500 to-red-600 rounded-xl flex items-center justify-center">
+                        <svg className="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                        </svg>
+                      </div>
+                      <div>
+                        <h3 className="text-xl font-bold text-gray-800">Pacing Insights</h3>
+                        <p className="text-gray-600">Recommendations for optimal learning pace and timing</p>
+                      </div>
+                    </div>
+                    
+                    <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                      {/* TwelveLabs Pacing */}
+                      <div className="bg-gradient-to-r from-blue-50 to-indigo-50 rounded-xl p-4 border border-blue-200">
+                        <div className="flex items-center justify-between mb-3">
+                          <div className="flex items-center gap-2">
+                            <div className="w-8 h-8 bg-gradient-to-br from-blue-500 to-blue-600 rounded-lg flex items-center justify-center">
+                              <svg className="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z" />
+                                </svg>
+                              </div>
+                            <span className="font-semibold text-blue-800">TwelveLabs</span>
+                          </div>
+                          {twelveLabsGeneratedContent.pacing_recommendations ? (
+                            <span className="text-xs bg-green-100 text-green-700 px-2 py-1 rounded-full font-medium">
+                              {Array.isArray(twelveLabsGeneratedContent.pacing_recommendations) ? twelveLabsGeneratedContent.pacing_recommendations.length : 'Unknown'} insights
+                              </span>
+                          ) : (
+                            <div className="flex items-center gap-1">
+                              <div className="w-2 h-2 bg-blue-500 rounded-full animate-pulse"></div>
+                              <span className="text-xs text-blue-600 font-medium">Processing...</span>
+                            </div>
+                          )}
+                          </div>
+                        {renderContent(twelveLabsGeneratedContent.pacing_recommendations, 'pacing_recommendations', 'twelvelabs')}
+                      </div>
+
+                      {/* Google Pacing */}
+                      <div className="bg-gradient-to-r from-green-50 to-emerald-50 rounded-xl p-4 border border-green-200">
+                        <div className="flex items-center justify-between mb-3">
+                          <div className="flex items-center gap-2">
+                            <div className="w-8 h-8 bg-gradient-to-br from-green-500 to-green-600 rounded-lg flex items-center justify-center">
+                              <svg className="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z" />
+                              </svg>
+                      </div>
+                            <span className="font-semibold text-green-800">Google Gemini</span>
+                    </div>
+                          {googleGeneratedContent.pacing_recommendations ? (
+                            <span className="text-xs bg-green-100 text-green-700 px-2 py-1 rounded-full font-medium">
+                              {Array.isArray(googleGeneratedContent.pacing_recommendations) ? googleGeneratedContent.pacing_recommendations.length : 'Unknown'} insights
+                            </span>
+                          ) : (
+                            <div className="flex items-center gap-1">
+                              <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse"></div>
+                              <span className="text-xs text-green-600 font-medium">Processing...</span>
+                            </div>
+                          )}
+                        </div>
+                        {renderContent(googleGeneratedContent.pacing_recommendations, 'pacing_recommendations', 'google')}
+                      </div>
+
+                      {/* AWS Pacing */}
+                      <div className="bg-gradient-to-r from-orange-50 to-amber-50 rounded-xl p-4 border border-orange-200">
+                        <div className="flex items-center justify-between mb-3">
+                          <div className="flex items-center gap-2">
+                            <div className="w-8 h-8 bg-gradient-to-br from-orange-500 to-orange-600 rounded-lg flex items-center justify-center">
+                              <svg className="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z" />
+                        </svg>
+                                      </div>
+                            <span className="font-semibold text-orange-800">AWS Nova</span>
+                                    </div>
+                          {awsGeneratedContent.pacing_recommendations ? (
+                            <span className="text-xs bg-green-100 text-green-700 px-2 py-1 rounded-full font-medium">
+                              {Array.isArray(awsGeneratedContent.pacing_recommendations) ? awsGeneratedContent.pacing_recommendations.length : 'Unknown'} insights
+                            </span>
+                          ) : (
+                            <div className="flex items-center gap-1">
+                              <div className="w-2 h-2 bg-orange-500 rounded-full animate-pulse"></div>
+                              <span className="text-xs text-orange-600 font-medium">Processing...</span>
+                                  </div>
+                          )}
+                                </div>
+                        {renderContent(awsGeneratedContent.pacing_recommendations, 'pacing_recommendations', 'aws')}
+                      </div>
+                                </div>
+                              </div>
+                              
+                  {/* Engagement Analysis Section */}
+                  <div className="bg-white rounded-xl border border-gray-200 shadow-lg p-6">
+                    <div className="flex items-center gap-3 mb-6">
+                      <div className="w-10 h-10 bg-gradient-to-br from-pink-500 to-rose-600 rounded-xl flex items-center justify-center">
+                        <svg className="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4.318 6.318a4.5 4.5 0 000 6.364L12 20.364l7.682-7.682a4.5 4.5 0 00-6.364-6.364L12 7.636l-1.318-1.318a4.5 4.5 0 00-6.364 0z" />
+                        </svg>
+                      </div>
+                                <div>
+                        <h3 className="text-xl font-bold text-gray-800">Engagement Analysis</h3>
+                        <p className="text-gray-600">Student engagement patterns and emotional responses</p>
+                      </div>
+                                </div>
+                                
+                    <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                      {/* TwelveLabs Engagement */}
+                      <div className="bg-gradient-to-r from-blue-50 to-indigo-50 rounded-xl p-4 border border-blue-200">
+                        <div className="flex items-center justify-between mb-3">
+                          <div className="flex items-center gap-2">
+                            <div className="w-8 h-8 bg-gradient-to-br from-blue-500 to-blue-600 rounded-lg flex items-center justify-center">
+                              <svg className="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z" />
+                              </svg>
+                                </div>
+                            <span className="font-semibold text-blue-800">TwelveLabs</span>
+                              </div>
+                          {twelveLabsGeneratedContent.engagement ? (
+                            <span className="text-xs bg-green-100 text-green-700 px-2 py-1 rounded-full font-medium">
+                              {Array.isArray(twelveLabsGeneratedContent.engagement) ? twelveLabsGeneratedContent.engagement.length : 'Unknown'} events
+                            </span>
+                          ) : (
+                            <div className="flex items-center gap-1">
+                              <div className="w-2 h-2 bg-blue-500 rounded-full animate-pulse"></div>
+                              <span className="text-xs text-blue-600 font-medium">Processing...</span>
+                            </div>
+                          )}
+                      </div>
+                        {renderContent(twelveLabsGeneratedContent.engagement, 'engagement', 'twelvelabs')}
+                    </div>
+
+                      {/* Google Engagement */}
+                      <div className="bg-gradient-to-r from-green-50 to-emerald-50 rounded-xl p-4 border border-green-200">
+                        <div className="flex items-center justify-between mb-3">
+                          <div className="flex items-center gap-2">
+                            <div className="w-8 h-8 bg-gradient-to-br from-green-500 to-green-600 rounded-lg flex items-center justify-center">
+                              <svg className="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z" />
+                              </svg>
+                            </div>
+                            <span className="font-semibold text-green-800">Google Gemini</span>
+                          </div>
+                          {googleGeneratedContent.engagement ? (
+                            <span className="text-xs bg-green-100 text-green-700 px-2 py-1 rounded-full font-medium">
+                              {Array.isArray(googleGeneratedContent.engagement) ? googleGeneratedContent.engagement.length : 'Unknown'} events
+                            </span>
+                          ) : (
+                            <div className="flex items-center gap-1">
+                              <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse"></div>
+                              <span className="text-xs text-green-600 font-medium">Processing...</span>
+                            </div>
+                          )}
+                        </div>
+                        {renderContent(googleGeneratedContent.engagement, 'engagement', 'google')}
+                </div>
+
+                      {/* AWS Engagement */}
+                      <div className="bg-gradient-to-r from-orange-50 to-amber-50 rounded-xl p-4 border border-orange-200">
+                        <div className="flex items-center justify-between mb-3">
+                          <div className="flex items-center gap-2">
+                            <div className="w-8 h-8 bg-gradient-to-br from-orange-500 to-orange-600 rounded-lg flex items-center justify-center">
+                              <svg className="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z" />
+                        </svg>
+                              </div>
+                            <span className="font-semibold text-orange-800">AWS Nova</span>
+                          </div>
+                          {awsGeneratedContent.engagement ? (
+                            <span className="text-xs bg-green-100 text-green-700 px-2 py-1 rounded-full font-medium">
+                              {Array.isArray(awsGeneratedContent.engagement) ? awsGeneratedContent.engagement.length : 'Unknown'} events
+                                </span>
+                          ) : (
+                            <div className="flex items-center gap-1">
+                              <div className="w-2 h-2 bg-orange-500 rounded-full animate-pulse"></div>
+                              <span className="text-xs text-orange-600 font-medium">Processing...</span>
+                              </div>
+                          )}
+                            </div>
+                        {renderContent(awsGeneratedContent.engagement, 'engagement', 'aws')}
+                          </div>
+                    </div>
+                  </div>
+                </div> 
+
+                {/* Quiz Questions Section */}
+                <div className="bg-white rounded-xl border border-gray-200 shadow-lg p-6">
+                  <div className="flex items-center gap-3 mb-6">
+                    <div className="w-10 h-10 bg-gradient-to-br from-teal-500 to-cyan-600 rounded-xl flex items-center justify-center">
+                      <svg className="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8.228 9c.549-1.165 2.03-2 3.772-2 2.21 0 4 1.343 4 3 0 1.4-1.278 2.575-3.006 2.907-.542.104-.994.54-.994 1.093m0 3h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                      </svg>
+                    </div>
+                    <div className="flex-1">
+                      <h3 className="text-xl font-bold text-gray-800">Quiz Questions</h3>
+                      <p className="text-gray-600">Test knowledge with AI-generated questions per chapter</p>
+                    </div>
+                    <div className="flex items-center gap-3">
+                      <select 
+                        value={selectedQuizProvider}
+                        onChange={(e) => handleQuizProviderChange(e.target.value)}
+                        className="px-4 py-2 border border-gray-300 rounded-lg bg-white text-gray-700 focus:outline-none focus:ring-2 focus:ring-teal-500 focus:border-transparent"
+                      >
+                        <option value="twelvelabs">TwelveLabs</option>
+                        <option value="google">Google Gemini</option>
+                        <option value="aws">AWS Nova</option>
+                      </select>
+                      <div className="text-sm text-gray-600">
+                        Question {currentQuizQuestionIndex + 1} of {getCurrentQuizQuestions().length}
+                      </div>
+                    </div>
+                  </div>
+
+                  {(() => {
+                    const questions = getCurrentQuizQuestions();
+                    const currentQuestion = questions[currentQuizQuestionIndex];
+                    
+                    if (!questions.length) {
+                      return (
+                        <div className="text-center py-12">
+                          <div className="w-16 h-16 bg-gray-100 rounded-full flex items-center justify-center mx-auto mb-4">
+                            <svg className="w-8 h-8 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8.228 9c.549-1.165 2.03-2 3.772-2 2.21 0 4 1.343 4 3 0 1.4-1.278 2.575-3.006 2.907-.542.104-.994.54-.994 1.093m0 3h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                            </svg>
+                          </div>
+                          <h4 className="text-lg font-semibold text-gray-700 mb-2">No Quiz Questions Available</h4>
+                          <p className="text-gray-500">Quiz questions will be generated once chapters are available for {getProviderName(selectedQuizProvider)}</p>
+                        </div>
+                      );
+                    }
+
+                    if (!currentQuestion) {
+                      return (
+                        <div className="text-center py-12">
+                          <h4 className="text-lg font-semibold text-gray-700">No more questions</h4>
+                        </div>
+                      );
+                    }
+
+                    const shuffledOptions = getShuffledOptions(currentQuizQuestionIndex);
+                    const colorClass = getProviderColor(selectedQuizProvider);
+
+                    return (
+                      <div className="space-y-6">
+                        <div className="bg-gradient-to-r from-gray-50 to-gray-100 rounded-xl p-6 border border-gray-200">
+                          <div className="flex items-center justify-between mb-4">
+                            <div className="flex items-center gap-3">
+                              <div className={`w-8 h-8 bg-gradient-to-br from-${colorClass}-500 to-${colorClass}-600 rounded-lg flex items-center justify-center`}>
+                                <svg className="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8.228 9c.549-1.165 2.03-2 3.772-2 2.21 0 4 1.343 4 3 0 1.4-1.278 2.575-3.006 2.907-.542.104-.994.54-.994 1.093m0 3h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                                </svg>
+                              </div>
+                              <div>
+                                <h4 className="font-semibold text-gray-800">{getProviderName(selectedQuizProvider)}</h4>
+                                <p className="text-sm text-gray-600">Chapter {currentQuestion.chapter_id}</p>
+                              </div>
+                            </div>
+                            <div className="text-right">
+                              <div className="text-sm text-gray-500">Question {currentQuizQuestionIndex + 1}</div>
+                              <div className="text-xs text-gray-400">Multiple Choice</div>
+                            </div>
+                          </div>
+                          
+                          <div className="bg-white rounded-lg p-4 border border-gray-200">
+                            <h3 className="text-lg font-medium text-gray-800 leading-relaxed">
+                              {currentQuestion.question}
+                            </h3>
+                          </div>
+                        </div>
+
+                        <div className="space-y-3">
+                          {shuffledOptions.map((option, index) => {
+                            const optionLetter = String.fromCharCode(65 + index);
+                            const isCorrectAnswer = option === currentQuestion.answer;
+                            return (
+                              <div 
+                                key={index}
+                                className={`border-2 rounded-xl p-4 transition-all duration-200 cursor-pointer hover:shadow-sm ${
+                                  isCorrectAnswer 
+                                    ? 'bg-green-50 border-green-300 hover:border-green-400' 
+                                    : 'bg-white border-gray-200 hover:border-gray-300'
+                                }`}
+                              >
+                                <div className="flex items-start gap-4">
+                                  <div className={`w-8 h-8 rounded-lg flex items-center justify-center font-semibold text-sm flex-shrink-0 ${
+                                    isCorrectAnswer 
+                                      ? 'bg-green-500 text-white' 
+                                      : 'bg-gray-100 text-gray-700'
+                                  }`}>
+                                    {optionLetter}
+                                  </div>
+                                  <div className="flex-1">
+                                    <p className={`leading-relaxed ${
+                                      isCorrectAnswer ? 'text-green-800 font-medium' : 'text-gray-800'
+                                    }`}>
+                                      {option}
+                                    </p>
+                                    {isCorrectAnswer && (
+                                      <div className="mt-2 flex items-center gap-2">
+                                        <svg className="w-4 h-4 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                                        </svg>
+                                        <span className="text-sm text-green-600 font-medium">Correct Answer</span>
+                                      </div>
+                                    )}
+                                  </div>
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+
+                        <div className="bg-blue-50 border border-blue-200 rounded-xl p-4">
+                          <div className="flex items-center gap-2 mb-2">
+                            <svg className="w-5 h-5 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                            </svg>
+                            <h4 className="font-semibold text-blue-800">Answer Explanation</h4>
+                          </div>
+                          <p className="text-blue-700 leading-relaxed">{currentQuestion.answer_explanation}</p>
+                        </div>
+
+                        <div className="bg-green-50 border border-green-200 rounded-xl p-4">
+                          <div className="flex items-center gap-2 mb-2">
+                            <svg className="w-5 h-5 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                            </svg>
+                            <h4 className="font-semibold text-green-800">Correct Answer</h4>
+                          </div>
+                          <p className="text-green-700 leading-relaxed font-medium">{currentQuestion.answer}</p>
+                        </div>
+
+                        <div className="flex items-center justify-between pt-4 border-t border-gray-200">
+                          <button
+                            onClick={() => setCurrentQuizQuestionIndex(prev => Math.max(0, prev - 1))}
+                            disabled={currentQuizQuestionIndex === 0}
+                            className="px-6 py-2 bg-gray-100 text-gray-700 rounded-lg font-medium disabled:opacity-50 disabled:cursor-not-allowed hover:bg-gray-200 transition-colors"
+                          >
+                            Previous
+                          </button>
+                          
+                          <div className="flex items-center gap-2">
+                            {questions.map((_, index) => (
+                              <button
+                                key={index}
+                                onClick={() => setCurrentQuizQuestionIndex(index)}
+                                className={`w-3 h-3 rounded-full transition-colors ${
+                                  index === currentQuizQuestionIndex 
+                                    ? `bg-${colorClass}-500` 
+                                    : 'bg-gray-300 hover:bg-gray-400'
+                                }`}
+                              />
+                            ))}
+                          </div>
+                          
+                          <button
+                            onClick={() => setCurrentQuizQuestionIndex(prev => Math.min(questions.length - 1, prev + 1))}
+                            disabled={currentQuizQuestionIndex === questions.length - 1}
+                            className="px-6 py-2 bg-gray-100 text-gray-700 rounded-lg font-medium disabled:opacity-50 disabled:cursor-not-allowed hover:bg-gray-200 transition-colors"
+                          >
+                            Next
+                          </button>
+                        </div>
+                      </div>
+                    );
+                  })()}
+                </div>
+
+                {/* Overall Progress Indicator */}
+                <div className="mt-8 bg-white rounded-xl border border-gray-200 shadow-lg p-8">
+                  <div className="flex items-center gap-3 mb-6">
+                    <div className="w-10 h-10 bg-gradient-to-br from-indigo-500 to-purple-600 rounded-xl flex items-center justify-center">
+                      <svg className="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
+                                    </svg>
+                                  </div>
+                    <div>
+                      <h3 className="text-2xl font-bold text-gray-800">Analysis Progress</h3>
+                      <p className="text-gray-600">Real-time completion status across all AI providers</p>
+                                </div>
+                                            </div>
+                  
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                    {/* TwelveLabs Progress */}
+                    <div className="bg-gradient-to-br from-blue-50 to-indigo-50 rounded-xl p-6 border border-blue-200">
+                      <div className="flex items-center justify-between mb-4">
+                                                    <div className="flex items-center gap-3">
+                          <div className="w-8 h-8 bg-gradient-to-br from-blue-500 to-blue-600 rounded-lg flex items-center justify-center">
+                            <svg className="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z" />
+                                                          </svg>
+                                                        </div>
+                          <div>
+                            <h4 className="font-semibold text-blue-800">TwelveLabs</h4>
+                            <p className="text-sm text-blue-600">Video Intelligence</p>
+                          </div>
+                        </div>
+                        <div className="text-right">
+                          <div className="text-2xl font-bold text-blue-600">
+                            {Object.values(twelveLabsGeneratedContent).filter(Boolean).length}/{Object.values(twelveLabsGeneratedContent).length}
+                          </div>
+                          <div className="text-xs text-blue-600 font-medium">Complete</div>
+                        </div>
+                      </div>
+                      
+                      <div className="space-y-2">
+                        {Object.entries(twelveLabsGeneratedContent).map(([key, value]) => (
+                          <div key={key} className="flex items-center justify-between">
+                            <span className="text-sm text-gray-700 capitalize">{key.replace('_', ' ')}</span>
+                            <div className="flex items-center gap-2">
+                              {value ? (
+                                <>
+                                  <div className="w-3 h-3 bg-green-500 rounded-full"></div>
+                                  {twelveLabsDuration[key] > 0 && (
+                                    <span className="text-xs text-blue-600 font-medium">
+                                      {twelveLabsDuration[key].toFixed(1)}s
+                                    </span>
+                                  )}
+                                </>
+                              ) : (
+                                <div className="w-3 h-3 bg-gray-300 rounded-full animate-pulse"></div>
+                              )}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                      
+                      {/* Total Duration */}
+                      {Object.values(twelveLabsDuration).some(duration => duration > 0) && (
+                        <div className="mt-4 pt-3 border-t border-blue-200">
+                          <div className="flex items-center justify-between">
+                            <span className="text-sm font-medium text-blue-700">Total Time</span>
+                            <span className="text-sm font-bold text-blue-800">
+                              {calculateTotalDuration(twelveLabsDuration)}
+                            </span>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                    
+                    {/* Google Progress */}
+                    <div className="bg-gradient-to-br from-green-50 to-emerald-50 rounded-xl p-6 border border-green-200">
+                      <div className="flex items-center justify-between mb-4">
+                        <div className="flex items-center gap-3">
+                          <div className="w-8 h-8 bg-gradient-to-br from-green-500 to-green-600 rounded-lg flex items-center justify-center">
+                            <svg className="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z" />
+                                                    </svg>
+                                                  </div>
+                          <div>
+                            <h4 className="font-semibold text-green-800">Google Gemini</h4>
+                            <p className="text-sm text-green-600">gemini-flash-2.5-pro</p>
+                                                </div>
+                                                  </div>
+                        <div className="text-right">
+                          <div className="text-2xl font-bold text-green-600">
+                            {Object.values(googleGeneratedContent).filter(Boolean).length}/{Object.values(googleGeneratedContent).length}
+                                                </div>
+                          <div className="text-xs text-green-600 font-medium">Complete</div>
+                        </div>
+                      </div>
+                      
+                      <div className="space-y-2">
+                        {Object.entries(googleGeneratedContent).map(([key, value]) => (
+                          <div key={key} className="flex items-center justify-between">
+                            <span className="text-sm text-gray-700 capitalize">{key.replace('_', ' ')}</span>
+                            <div className="flex items-center gap-2">
+                              {value ? (
+                                <>
+                                  <div className="w-3 h-3 bg-green-500 rounded-full"></div>
+                                  {googleDuration[key] > 0 && (
+                                    <span className="text-xs text-green-600 font-medium">
+                                      {googleDuration[key].toFixed(1)}s
+                                    </span>
+                                  )}
+                                </>
+                              ) : (
+                                <div className="w-3 h-3 bg-gray-300 rounded-full animate-pulse"></div>
+                              )}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                      
+                      {/* Total Duration */}
+                      {Object.values(googleDuration).some(duration => duration > 0) && (
+                        <div className="mt-4 pt-3 border-t border-green-200">
+                          <div className="flex items-center justify-between">
+                            <span className="text-sm font-medium text-green-700">Total Time</span>
+                            <span className="text-sm font-bold text-green-800">
+                              {calculateTotalDuration(googleDuration)}
+                            </span>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+
+                    {/* AWS Progress */}
+                    <div className="bg-gradient-to-br from-orange-50 to-amber-50 rounded-xl p-6 border border-orange-200">
+                      <div className="flex items-center justify-between mb-4">
+                        <div className="flex items-center gap-3">
+                          <div className="w-8 h-8 bg-gradient-to-br from-orange-500 to-orange-600 rounded-lg flex items-center justify-center">
+                            <svg className="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z" />
+                                    </svg>
+                                  </div>
+                          <div>
+                            <h4 className="font-semibold text-orange-800">AWS Nova</h4>
+                            <p className="text-sm text-orange-600">aws-nova-1.0-pro</p>
+                              </div>
+                        </div>
+                        <div className="text-right">
+                          <div className="text-2xl font-bold text-orange-600">
+                            {Object.values(awsGeneratedContent).filter(Boolean).length}/{Object.values(awsGeneratedContent).length}
+                    </div>
+                          <div className="text-xs text-orange-600 font-medium">Complete</div>
+                  </div>
+                      </div>
+                      
+                      <div className="space-y-2">
+                        {Object.entries(awsGeneratedContent).map(([key, value]) => (
+                          <div key={key} className="flex items-center justify-between">
+                            <span className="text-sm text-gray-700 capitalize">{key.replace('_', ' ')}</span>
+                            <div className="flex items-center gap-2">
+                              {value ? (
+                                <>
+                                  <div className="w-3 h-3 bg-green-500 rounded-full"></div>
+                                  {awsDuration[key] > 0 && (
+                                    <span className="text-xs text-orange-600 font-medium">
+                                      {awsDuration[key].toFixed(1)}s
+                                    </span>
+                                  )}
+                                </>
+                              ) : (
+                                <div className="w-3 h-3 bg-gray-300 rounded-full animate-pulse"></div>
+                              )}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                      
+                      {/* Total Duration */}
+                      {Object.values(awsDuration).some(duration => duration > 0) && (
+                        <div className="mt-4 pt-3 border-t border-orange-200">
+                          <div className="flex items-center justify-between">
+                            <span className="text-sm font-medium text-orange-700">Total Time</span>
+                            <span className="text-sm font-bold text-orange-800">
+                              {calculateTotalDuration(awsDuration)}
+                            </span>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+              </div>
             </div>
+
+                  {/* Overall Summary */}
+                  <div className="mt-6 pt-6 border-t border-gray-200">
+              <div className="flex items-center justify-between">
+                <div>
+                        <h4 className="text-lg font-semibold text-gray-800">Overall Completion</h4>
+                        <p className="text-sm text-gray-600">Combined progress across all providers</p>
+                </div>
+                      <div className="text-right">
+                        <div className="text-3xl font-bold text-indigo-600">
+                          {Math.round((Object.values(twelveLabsGeneratedContent).filter(Boolean).length + 
+                                      Object.values(googleGeneratedContent).filter(Boolean).length + 
+                                      Object.values(awsGeneratedContent).filter(Boolean).length) / (Object.keys(twelveLabsGeneratedContent).length + Object.keys(googleGeneratedContent).length + Object.keys(awsGeneratedContent).length) * 100)}%
+                        </div>
+                        <div className="text-sm text-gray-600">
+                          {Object.values(twelveLabsGeneratedContent).filter(Boolean).length + 
+                           Object.values(googleGeneratedContent).filter(Boolean).length + 
+                           Object.values(awsGeneratedContent).filter(Boolean).length}/{Object.keys(twelveLabsGeneratedContent).length + Object.keys(googleGeneratedContent).length + Object.keys(awsGeneratedContent).length} tasks
+                        </div>
+                      </div>
+              </div>
+              
+                    {/* Progress Bar */}
+                    <div className="mt-4">
+                      <div className="w-full bg-gray-200 rounded-full h-3">
+                        <div 
+                          className="bg-gradient-to-r from-blue-500 to-indigo-600 h-3 rounded-full transition-all duration-500"
+                          style={{
+                            width: `${(Object.values(twelveLabsGeneratedContent).filter(Boolean).length + 
+                                     Object.values(googleGeneratedContent).filter(Boolean).length + 
+                                     Object.values(awsGeneratedContent).filter(Boolean).length) / (Object.keys(twelveLabsGeneratedContent).length + Object.keys(googleGeneratedContent).length + Object.keys(awsGeneratedContent).length) * 100}%`
+                          }}
+                        ></div>
+                  </div>
+                </div>
+                  </div>
+                </div>
+              </div>
+            
+            {/* Publish Section */}
+            {Object.values(twelveLabsGeneratedContent).filter(Boolean).length > 0 && (
+              <div className="mt-8 bg-gradient-to-r from-green-50 to-emerald-50 rounded-xl border border-green-200 shadow-lg p-8">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-4">
+                    <div className="w-12 h-12 bg-gradient-to-br from-green-500 to-emerald-600 rounded-xl flex items-center justify-center">
+                      <svg className="w-7 h-7 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                      </svg>
+                    </div>
+                    <div>
+                      <h3 className="text-xl font-bold text-green-800">Ready to Publish!</h3>
+                      <p className="text-green-600">Your course analysis is complete and ready to be published to students</p>
+                    </div>
+                  </div>
+                  
+                  <div className="flex items-center gap-4">
+                    <div className="text-right">
+                      <div className="text-sm text-green-600">Analysis Complete</div>
+                      <div className="text-lg font-bold text-green-800">
+                        {Object.values(twelveLabsGeneratedContent).filter(Boolean).length}/{Object.keys(twelveLabsGeneratedContent).length} tasks
+                      </div>
+                    </div>
+                    
+                    <button
+                      onClick={handlePublish}
+                      disabled={publishing}
+                      className="px-8 py-3 bg-gradient-to-r from-green-500 to-emerald-600 text-white font-semibold rounded-xl hover:from-green-600 hover:to-emerald-700 transition-all duration-200 shadow-lg hover:shadow-xl disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+                    >
+                      {publishing ? (
+                        <>
+                          <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+                          Publishing...
+                        </>
+                      ) : (
+                        <>
+                          <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" />
+                          </svg>
+                          Publish Course
+                        </>
+                      )}
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
           </main>
 
           {/* Right Sidebar - Chapters and Info */}
@@ -1530,16 +2074,196 @@ export default function InstructorCourseView({ videoId }) {
               </div>
 
               {/* Chapters Section */}
-              {showChapters ? (
-                <ChaptersSection videoData={videoData} chapters={generatedContent.chapters} loading={chaptersLoading} seekTo={handleChapterClick} currentTime={videoCurrentTime} duration={videoDuration} />
-              ) : (
-                <div className="text-center py-4 text-gray-500 text-sm">
-                  <svg className="w-8 h-8 mx-auto mb-2 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <div className="bg-white rounded-xl border border-gray-200 shadow-sm">
+                <div className="p-4 border-b border-gray-200 bg-gradient-to-r from-purple-50 to-pink-50 rounded-t-xl">
+                  <div className="flex items-center gap-3">
+                    <div className="w-8 h-8 bg-gradient-to-br from-purple-500 to-purple-600 rounded-lg flex items-center justify-center">
+                      <svg className="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" />
+                      </svg>
+                    </div>
+                    <div>
+                      <h3 className="text-lg font-bold text-purple-800">Chapter Navigation</h3>
+                      <p className="text-sm text-purple-600">Click to jump to specific sections</p>
+                    </div>
+                  </div>
+                </div>
+                
+                <div className="p-4">
+                  {showChapters && (twelveLabsGeneratedContent.chapters || googleGeneratedContent.chapters || awsGeneratedContent.chapters) ? (
+                    <div className="space-y-4 max-h-96 overflow-y-auto">
+                      {/* TwelveLabs Chapters */}
+                      {twelveLabsGeneratedContent.chapters && (
+                        <div>
+                          <div className="flex items-center gap-2 mb-3">
+                            <div className="w-6 h-6 bg-gradient-to-br from-blue-500 to-blue-600 rounded-lg flex items-center justify-center">
+                              <svg className="w-4 h-4 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z" />
+                              </svg>
+                            </div>
+                            <h4 className="text-sm font-semibold text-blue-800">TwelveLabs ({twelveLabsGeneratedContent.chapters.length} chapters)</h4>
+                          </div>
+                          <div className="space-y-2">
+                            {twelveLabsGeneratedContent.chapters.map((chapter, idx) => (
+                              <div 
+                                key={`twelvelabs-${idx}`} 
+                                className="bg-gradient-to-r from-blue-50 to-indigo-50 rounded-lg p-3 border border-blue-200 hover:shadow-md transition-all duration-200 cursor-pointer hover:bg-blue-100"
+                                onClick={() => handleChapterClick(chapter.start_time, chapter.id || idx + 1)}
+                              >
+                                <div className="flex items-center justify-between mb-2">
+                                  <div className="font-semibold text-sm text-gray-800 line-clamp-1">{chapter.title}</div>
+                                  <div className="text-xs bg-blue-100 text-blue-700 px-2 py-1 rounded-full font-medium">
+                                    {Math.floor(chapter.start_time / 60)}:{(chapter.start_time % 60).toString().padStart(2, '0')}
+                                  </div>
+                                </div>
+                                
+                                {chapter.duration && (
+                                  <div className="text-xs text-gray-500 mb-2">
+                                    Duration: {Math.floor(chapter.duration / 60)}:{(chapter.duration % 60).toString().padStart(2, '0')}
+                                  </div>
+                                )}
+                                
+                                {chapter.summary && (
+                                  <div className="text-xs text-gray-600 leading-relaxed line-clamp-2">
+                                    {chapter.summary}
+                                  </div>
+                                )}
+                                
+                                {/* Progress indicator for current chapter */}
+                                {videoCurrentTime >= chapter.start_time && 
+                                 (!chapter.duration || videoCurrentTime < chapter.start_time + chapter.duration) && (
+                                  <div className="mt-2 flex items-center gap-2">
+                                    <div className="w-2 h-2 bg-blue-500 rounded-full animate-pulse"></div>
+                                    <span className="text-xs text-blue-600 font-medium">Currently playing</span>
+                                  </div>
+                                )}
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Google Chapters */}
+                      {googleGeneratedContent.chapters && (
+                        <div>
+                          <div className="flex items-center gap-2 mb-3">
+                            <div className="w-6 h-6 bg-gradient-to-br from-green-500 to-green-600 rounded-lg flex items-center justify-center">
+                              <svg className="w-4 h-4 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z" />
+                              </svg>
+                            </div>
+                            <h4 className="text-sm font-semibold text-green-800">Google Gemini ({googleGeneratedContent.chapters.length} chapters)</h4>
+                          </div>
+                          <div className="space-y-2">
+                            {googleGeneratedContent.chapters.map((chapter, idx) => (
+                              <div 
+                                key={`google-${idx}`} 
+                                className="bg-gradient-to-r from-green-50 to-emerald-50 rounded-lg p-3 border border-green-200 hover:shadow-md transition-all duration-200 cursor-pointer hover:bg-green-100"
+                                onClick={() => handleChapterClick(chapter.start_time, chapter.id || idx + 1)}
+                              >
+                                <div className="flex items-center justify-between mb-2">
+                                  <div className="font-semibold text-sm text-gray-800 line-clamp-1">{chapter.title}</div>
+                                  <div className="text-xs bg-green-100 text-green-700 px-2 py-1 rounded-full font-medium">
+                                    {Math.floor(chapter.start_time / 60)}:{(chapter.start_time % 60).toString().padStart(2, '0')}
+                                  </div>
+                                </div>
+                                
+                                {chapter.duration && (
+                                  <div className="text-xs text-gray-500 mb-2">
+                                    Duration: {Math.floor(chapter.duration / 60)}:{(chapter.duration % 60).toString().padStart(2, '0')}
+                                  </div>
+                                )}
+                                
+                                {chapter.summary && (
+                                  <div className="text-xs text-gray-600 leading-relaxed line-clamp-2">
+                                    {chapter.summary}
+                                  </div>
+                                )}
+                                
+                                {/* Progress indicator for current chapter */}
+                                {videoCurrentTime >= chapter.start_time && 
+                                 (!chapter.duration || videoCurrentTime < chapter.start_time + chapter.duration) && (
+                                  <div className="mt-2 flex items-center gap-2">
+                                    <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse"></div>
+                                    <span className="text-xs text-green-600 font-medium">Currently playing</span>
+                                  </div>
+                                )}
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+
+                      {/* AWS Chapters */}
+                      {awsGeneratedContent.chapters && (
+                        <div>
+                          <div className="flex items-center gap-2 mb-3">
+                            <div className="w-6 h-6 bg-gradient-to-br from-orange-500 to-orange-600 rounded-lg flex items-center justify-center">
+                              <svg className="w-4 h-4 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z" />
+                              </svg>
+                            </div>
+                            <h4 className="text-sm font-semibold text-orange-800">AWS Nova ({awsGeneratedContent.chapters.length} chapters)</h4>
+                          </div>
+                          <div className="space-y-2">
+                            {awsGeneratedContent.chapters.map((chapter, idx) => (
+                              <div 
+                                key={`aws-${idx}`} 
+                                className="bg-gradient-to-r from-orange-50 to-amber-50 rounded-lg p-3 border border-orange-200 hover:shadow-md transition-all duration-200 cursor-pointer hover:bg-orange-100"
+                                onClick={() => handleChapterClick(chapter.start_time, chapter.id || idx + 1)}
+                              >
+                                <div className="flex items-center justify-between mb-2">
+                                  <div className="font-semibold text-sm text-gray-800 line-clamp-1">{chapter.title}</div>
+                                  <div className="text-xs bg-orange-100 text-orange-700 px-2 py-1 rounded-full font-medium">
+                                    {Math.floor(chapter.start_time / 60)}:{(chapter.start_time % 60).toString().padStart(2, '0')}
+                                  </div>
+                                </div>
+                                
+                                {chapter.duration && (
+                                  <div className="text-xs text-gray-500 mb-2">
+                                    Duration: {Math.floor(chapter.duration / 60)}:{(chapter.duration % 60).toString().padStart(2, '0')}
+                                  </div>
+                                )}
+                                
+                                {chapter.summary && (
+                                  <div className="text-xs text-gray-600 leading-relaxed line-clamp-2">
+                                    {chapter.summary}
+                                  </div>
+                                )}
+                                
+                                {/* Progress indicator for current chapter */}
+                                {videoCurrentTime >= chapter.start_time && 
+                                 (!chapter.duration || videoCurrentTime < chapter.start_time + chapter.duration) && (
+                                  <div className="mt-2 flex items-center gap-2">
+                                    <div className="w-2 h-2 bg-orange-500 rounded-full animate-pulse"></div>
+                                    <span className="text-xs text-orange-600 font-medium">Currently playing</span>
+                                  </div>
+                                )}
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  ) : chaptersLoading ? (
+                    <div className="space-y-3">
+                      {[1, 2, 3, 4].map((idx) => (
+                        <div key={idx} className="bg-gray-50 rounded-lg p-3 animate-pulse">
+                          <div className="h-4 bg-gray-200 rounded mb-2"></div>
+                          <div className="h-3 bg-gray-200 rounded w-1/3"></div>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <div className="text-center py-8 text-gray-500">
+                      <svg className="w-12 h-12 mx-auto mb-3 text-gray-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
                   </svg>
-                  Chapters will appear here
+                      <p className="text-sm">Chapters will appear here once analysis is complete</p>
                 </div>
               )}
+                </div>
+              </div>
             </div>
           </aside>
         </div>
