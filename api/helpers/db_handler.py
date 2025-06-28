@@ -15,6 +15,7 @@ class DBHandler:
         logger.info("Initializing DBHandler...")
         try:
             self.dynamodb = boto3.resource('dynamodb')
+            self.s3_client = boto3.resource('s3')
             logger.info("DynamoDB resource created successfully")
         except Exception as e:
             logger.error(f"Error creating DynamoDB resource: {str(e)}")
@@ -501,5 +502,27 @@ class DBHandler:
         except Exception as e:
             logger.error(f"=== Error in fetch_student_data_from_course: {str(e)} ===")
             raise e
+        
+    def fetch_s3_presigned_urls(self):
 
+        """
+        
+        Fetches all videos from the S3 storage bucket
+        
+        """
+
+        try:
+
+            presigned_urls = []
+
+            for obj in boto3.client('s3').list_objects(Bucket=os.getenv('S3_BUCKET_NAME'))['Contents']:
+                presigned_url = boto3.client('s3').generate_presigned_url('get_object', Params={'Bucket': os.getenv('S3_BUCKET_NAME'), 'Key': obj['Key']}, ExpiresIn=3600)
+                presigned_urls.append(presigned_url)
+
+            return presigned_urls
+        
+        except Exception as e:
+            
+            raise Exception(f"Error fetching S3 presigned URLs: {str(e)}")
+        
 __all__ = ['DBHandler']

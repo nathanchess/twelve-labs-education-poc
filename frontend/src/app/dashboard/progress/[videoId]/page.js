@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { useUser } from '../../../context/UserContext';
 import VideoPlayer from '../../../components/VideoPlayer';
@@ -18,6 +18,10 @@ export default function StudentProgressPage() {
   const [videoSeekTo, setVideoSeekTo] = useState(null);
   const [videoCurrentTime, setVideoCurrentTime] = useState(0);
   const [videoDuration, setVideoDuration] = useState(0);
+
+  const [generatingRelatedVideos, setGeneratingRelatedVideos] = useState(false);
+
+  const [relatedVideos, setRelatedVideos] = useState({});
 
   const handleVideoSeekTo = useCallback((seekFunction) => {
     setVideoSeekTo(() => seekFunction);
@@ -96,7 +100,6 @@ export default function StudentProgressPage() {
           });
         }
 
-        // First, try to get existing progress report
         let data = null;
         try {
           console.log('Fetching progress report for:', { video_id: videoId, student_name: userName });
@@ -287,13 +290,14 @@ export default function StudentProgressPage() {
               };
             });
           }
-          
+
+          setLoading(false);
           setProgressData(formattedData);
         } else {
           console.error('API returned error:', data);
         }
         
-        setLoading(false);
+        
       } catch (error) {
         console.error('Error fetching progress data:', error);
         setLoading(false);
@@ -304,6 +308,28 @@ export default function StudentProgressPage() {
       fetchData();
     }
   }, [videoId, userName, isLoggedIn, router]);
+
+  useEffect(() => {
+
+    const fetchRelatedVideos = async () => {
+      const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/fetch_related_videos`, {
+        method: 'POST',
+        body: JSON.stringify({ video_id: videoId })
+      });
+
+      const data = await response.json();
+      
+      setRelatedVideos(data.data);
+    }
+
+    console.log(progressData, generatingRelatedVideos);
+
+    if (progressData && !generatingRelatedVideos) {
+      setGeneratingRelatedVideos(true);
+      fetchRelatedVideos();
+    }
+
+  }, [progressData, generatingRelatedVideos])
 
   // Create chapter title mapping from course metadata
   const chapterTitleMap = {};
@@ -750,88 +776,62 @@ export default function StudentProgressPage() {
           <h2 className="text-xl font-bold text-gray-800 mb-4">External Resources</h2>
           <p className="text-gray-600 mb-6">Additional videos to help you master these concepts</p>
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-            {[
-              {
-                title: "Storytelling Techniques for Beginners",
-                channel: "TEDx",
-                duration: "12:34",
-                thumbnail: "https://img.youtube.com/vi/dQw4w9WgXcQ/mqdefault.jpg",
-                url: "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
-                description: "Learn the fundamentals of effective storytelling"
-              },
-              {
-                title: "YouTube Content Creation Tips",
-                channel: "Creator Academy",
-                duration: "8:45",
-                thumbnail: "https://img.youtube.com/vi/jNQXAC9IVRw/mqdefault.jpg",
-                url: "https://www.youtube.com/watch?v=jNQXAC9IVRw",
-                description: "Essential tips for creating engaging YouTube content"
-              },
-              {
-                title: "Visual Storytelling in Digital Media",
-                channel: "Digital Storytelling",
-                duration: "15:22",
-                thumbnail: "https://img.youtube.com/vi/9bZkp7q19f0/mqdefault.jpg",
-                url: "https://www.youtube.com/watch?v=9bZkp7q19f0",
-                description: "Advanced techniques for visual storytelling"
-              },
-              {
-                title: "Public Speaking and Presentation Skills",
-                channel: "Communication Skills",
-                duration: "10:18",
-                thumbnail: "https://img.youtube.com/vi/8jPQjjsBbIc/mqdefault.jpg",
-                url: "https://www.youtube.com/watch?v=8jPQjjsBbIc",
-                description: "Improve your public speaking abilities"
-              },
-              {
-                title: "Content Strategy for Social Media",
-                channel: "Social Media Marketing",
-                duration: "13:56",
-                thumbnail: "https://img.youtube.com/vi/kJQP7kiw5Fk/mqdefault.jpg",
-                url: "https://www.youtube.com/watch?v=kJQP7kiw5Fk",
-                description: "Strategic approach to social media content"
-              },
-              {
-                title: "Creative Video Production",
-                channel: "Video Production Pro",
-                duration: "11:42",
-                thumbnail: "https://img.youtube.com/vi/ZZ5LpwO-An4/mqdefault.jpg",
-                url: "https://www.youtube.com/watch?v=ZZ5LpwO-An4",
-                description: "Professional video production techniques"
-              }
-            ].map((video, index) => (
-              <div key={index} className="border border-gray-200 rounded-lg overflow-hidden hover:border-blue-300 transition-colors">
-                <div className="relative">
-                  <img 
-                    src={video.thumbnail} 
-                    alt={video.title}
-                    className="w-full h-32 object-cover"
-                    onError={(e) => {
-                      e.target.src = 'https://via.placeholder.com/320x180/cccccc/666666?text=Video+Thumbnail';
-                    }}
-                  />
-                  <div className="absolute bottom-2 right-2 bg-black bg-opacity-75 text-white text-xs px-2 py-1 rounded">
-                    {video.duration}
+            {relatedVideos && Array.isArray(relatedVideos) && relatedVideos.length > 0 ? (
+              relatedVideos.map((videoData, index) => {
+                // Extract URL and similarity score from the tuple
+                const [videoUrl, similarityScore] = videoData;
+                
+                // Extract video name from URL
+                const urlParts = videoUrl.split('/');
+                const fileName = decodeURIComponent(urlParts[urlParts.length - 1].split('?')[0]);
+                const videoName = fileName.replace(/\.(mp4|avi|mov|mkv)$/i, '').replace(/_/g, ' ');
+                
+                // Calculate similarity percentage
+                const similarityPercentage = Math.round((1 - similarityScore) * 100);
+                
+                return (
+                  <div key={index} className="border border-gray-200 rounded-lg overflow-hidden hover:border-blue-300 transition-colors">
+                    <div className="relative">
+                      <div className="w-full h-32 bg-gradient-to-br from-blue-100 to-purple-100 flex items-center justify-center">
+                        <svg className="w-12 h-12 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M14.828 14.828a4 4 0 01-5.656 0M9 10h1m4 0h1m-6 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                        </svg>
+                      </div>
+                      <div className="absolute top-2 left-2 bg-green-500 text-white text-xs px-2 py-1 rounded">
+                        {similarityPercentage}% Match
+                      </div>
+                    </div>
+                    <div className="p-4">
+                      <h3 className="font-semibold text-gray-800 mb-1 line-clamp-2">{videoName}</h3>
+                      <p className="text-sm text-gray-600 mb-2">Recommended Video</p>
+                      <p className="text-xs text-gray-500 mb-3 line-clamp-2">
+                        This video is highly relevant to your current study material
+                      </p>
+                      <a 
+                        href={videoUrl} 
+                        target="_blank" 
+                        rel="noopener noreferrer"
+                        className="inline-flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors text-sm font-medium"
+                      >
+                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M14.828 14.828a4 4 0 01-5.656 0M9 10h1m4 0h1m-6 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                        </svg>
+                        Watch Video
+                      </a>
+                    </div>
                   </div>
-                </div>
-                <div className="p-4">
-                  <h3 className="font-semibold text-gray-800 mb-1 line-clamp-2">{video.title}</h3>
-                  <p className="text-sm text-gray-600 mb-2">{video.channel}</p>
-                  <p className="text-xs text-gray-500 mb-3 line-clamp-2">{video.description}</p>
-                  <a 
-                    href={video.url} 
-                    target="_blank" 
-                    rel="noopener noreferrer"
-                    className="inline-flex items-center gap-2 px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors text-sm font-medium"
-                  >
-                    <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 24 24">
-                      <path d="M23.498 6.186a3.016 3.016 0 0 0-2.122-2.136C19.505 3.545 12 3.545 12 3.545s-7.505 0-9.377.505A3.017 3.017 0 0 0 .502 6.186C0 8.07 0 12 0 12s0 3.93.502 5.814a3.016 3.016 0 0 0 2.122 2.136c1.871.505 9.376.505 9.376.505s7.505 0 9.377-.505a3.015 3.015 0 0 0 2.122-2.136C24 15.93 24 12 24 12s0-3.93-.502-5.814zM9.545 15.568V8.432L15.818 12l-6.273 3.568z"/>
-                    </svg>
-                    Watch on YouTube
-                  </a>
-                </div>
+                );
+              })
+            ) : (
+              // Fallback content when no related videos are available
+              <div className="col-span-full text-center py-8">
+                <svg className="w-16 h-16 text-gray-400 mx-auto mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M14.828 14.828a4 4 0 01-5.656 0M9 10h1m4 0h1m-6 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                </svg>
+                <p className="text-gray-500">No related videos available at the moment</p>
+                <p className="text-sm text-gray-400 mt-1">Check back later for personalized recommendations</p>
               </div>
-            ))}
+            )}
           </div>
         </div>
       </div>

@@ -1,6 +1,18 @@
 import pydantic
 import boto3
 import instructor
+import asyncio
+
+import numpy as np
+from pytube import YouTube, Search
+
+from twelvelabs import TwelveLabs
+import os
+from dotenv import load_dotenv
+
+from .db_handler import DBHandler
+
+load_dotenv(override=True)
 
 from .prompts import study_recommendations_prompt, concept_mastery_prompt, course_analysis_prompt
 from .data_schema import StudyRecommendationsSchema, ConceptMasterySchema, CourseAnalysisSchema
@@ -85,6 +97,12 @@ class EvaluationAgent:
             raise Exception(f"Error generating quiz study recommendations: {str(e)}")
         
     def generate_concept_mastery(self, wrong_answers: list):
+
+        """
+        
+        Given the course details and the student's wrong answers, will generate a detailed section on what subtopics the student needs to focus on to improve.
+        
+        """
         
         try:
             
@@ -113,6 +131,12 @@ class EvaluationAgent:
 
 
     def calculate_quiz_performance(self, wrong_answers: list):
+
+        """
+        
+        Given the course details and the student's wrong answers, will generate a detailed report of the student's performance and steps to improve personalzied to students.
+        
+        """
 
         try:
         
@@ -149,6 +173,12 @@ class EvaluationAgent:
             raise Exception(f"Error calculating quiz performance: {str(e)}")
         
     def generate_course_analysis(self, student_data: dict):
+
+        """
+        
+        Given all student data on a specific course, will generate a detailed analysis of the course according to the student's performance.
+        
+        """
         
         try:
             
@@ -168,5 +198,141 @@ class EvaluationAgent:
         except Exception as e:
 
             raise Exception(f"Error generating course analysis: {str(e)}")
+        
+class VideoSearchAgent:
 
-__all__ = ['LectureBuilderAgent', 'EvaluationAgent']
+    def __init__(self):
+
+        self.twelvelabs_client = TwelveLabs(api_key=os.getenv('TWELVE_LABS_API_KEY'))
+
+    def _euclidean_distance(self, embedding1: list, embedding2: list):
+
+        minimum_length = min(len(embedding1), len(embedding2))
+
+        if len(embedding1) != len(embedding2):
+            embedding1 = embedding1[:minimum_length]
+            embedding2 = embedding2[:minimum_length]
+        
+        return np.linalg.norm(np.array(embedding1) - np.array(embedding2))
+    
+    def knn_search(self, comparison_embedding: list, embeddings: dict, k: int):
+
+        try:
+            
+            distances = {}
+
+            for video_url, video_embedding in embeddings.items():
+
+                distances[video_url] = self._euclidean_distance(comparison_embedding, video_embedding)
+            
+            return sorted(distances.items(), key=lambda x: x[1])[:k]
+
+        except Exception as e:
+
+            raise Exception(f"Error performing knn search: {str(e)}")
+
+    def query_generation(self, video_id: str):
+
+        try:
+
+            youtube_search_query = self.twelvelabs_client.analyze(video_id=video_id, prompt='Generate a youtube search query for this video. Focus on the content and subtopics of the video, not the title. The query should be short and concise words to find the most relevant videos.')
+
+            return youtube_search_query.data
+        
+        except Exception as e:
+
+            raise Exception(f"Error generating youtube search query: {str(e)}")
+
+    def youtube_api_search(self, query: str):
+
+        try:
+
+            search_results = Search(query).results
+            search_urls = []
+
+            for video in search_results:
+                search_urls.append(video.watch_url)
+
+            return search_urls
+        
+        except Exception as e:
+
+            raise Exception(f"Error searching youtube: {str(e)}")
+        
+    def generate_new_video_embeddings(self, video_url: str, comparison_embedding: list, video_duration: int):
+
+        try:
+
+            embedding = np.array([])
+
+            task = self.twelvelabs_client.embed.task.create(
+                model_name="Marengo-retrieval-2.7",
+                video_url=video_url,
+                video_start_offset_sec=0,
+                video_end_offset_sec=video_duration+1
+            )
+
+            def on_embedding_generated(task):
+                pass
+
+            status = task.wait_for_done(sleep_interval=2, callback=on_embedding_generated)
+
+            video_embedding = task.retrieve(embedding_option=['visual-text'])
+
+            for segment in video_embedding.video_embedding.segments:
+                embedding = np.concatenate([embedding, segment.embeddings_float])
+
+            print(embedding.shape)
+
+            return embedding
+        
+        except Exception as e:
+
+            raise Exception(f"Error generating new video embeddings: {str(e)}")
+
+    def fetch_related_videos(self, video_id: str):
+
+        try:
+
+            """
+            youtube_search_query = self.query_generation(video_id)
+            youtube_search_results = self.youtube_api_search(youtube_search_query)
+
+            print("Youtube search query: ", youtube_search_query)
+            print("Youtube search results: ", youtube_search_results)
+            """
+
+            presigned_urls = DBHandler().fetch_s3_presigned_urls()
+            
+            video_object = self.twelvelabs_client.index.video.retrieve(index_id=os.getenv('TWELVE_LABS_INDEX_ID'), id=video_id, embedding_option=['visual-text'])
+            video_duration = video_object.system_metadata.duration
+            video_embedding_segments = video_object.embedding.video_embedding.segments
+
+            combined_embedding = np.array([])
+
+            for segment in video_embedding_segments:
+                combined_embedding = np.concatenate([combined_embedding, segment.embeddings_float])
+
+            print(combined_embedding.shape)
+            
+            
+            other_video_embeddings = {}
+                
+            for video_url in presigned_urls:
+
+                video_embedding = self.generate_new_video_embeddings(video_url, combined_embedding, video_duration)
+
+                other_video_embeddings[video_url] = video_embedding
+
+            knn_results = self.knn_search(combined_embedding, other_video_embeddings, 5)
+
+            print("KNN results: ", knn_results)
+            
+            return knn_results
+
+        except Exception as e:
+
+            raise Exception(f"Error fetching related videos: {str(e)}")
+
+
+__all__ = ['LectureBuilderAgent', 'EvaluationAgent', 'VideoSearchAgent']

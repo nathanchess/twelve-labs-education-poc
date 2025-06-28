@@ -1,6 +1,6 @@
 from providers import TwelveLabsHandler, GoogleHandler, AWSHandler
 from helpers import DBHandler
-from helpers.reasoning import LectureBuilderAgent, EvaluationAgent
+from helpers.reasoning import EvaluationAgent, VideoSearchAgent
 
 import json
 import asyncio
@@ -11,7 +11,7 @@ import time
 from decimal import Decimal
 from starlette.middleware.cors import CORSMiddleware
 from fastapi import FastAPI, Request, Depends, HTTPException
-from fastapi.responses import JSONResponse, StreamingResponse
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
 logging.basicConfig(level=logging.INFO)
@@ -1044,6 +1044,39 @@ async def fetch_student_data_from_course(request: Request):
             'status': 'error',
             'message': str(e)
         }, status_code=500)
+    
+@app.post('/fetch_related_videos')
+async def fetch_related_videos(request: Request):
+    
+    """
+
+    Fetches recommended videos either from previous lectures in S3 or from YouTube API.
+    Uses KNN search from TwelveLabs vector embeddings to find the most similar videos.
+
+    Returns a list of video URLs and the confidence score for each video.
+    
+    """
+
+    try:
+
+        data = await request.json()
+        video_id = data.get('video_id')
+
+        video_search_agent = VideoSearchAgent()
+        related_videos = video_search_agent.fetch_related_videos(video_id)
+
+        return JSONResponse({
+            'status': 'success',
+            'message': 'Related videos fetched successfully',
+            'data': related_videos
+        }, status_code=200)
+    
+    except Exception as e:
+
+        return JSONResponse({
+            'status': 'error',
+            'message': str(e)
+        }, status_code=500)   
     
 
 if __name__ == "__main__":
