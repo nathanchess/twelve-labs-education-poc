@@ -191,7 +191,13 @@ twelve-labs-education-poc/
 <div align="center">
   <img src="docs/technical-architecture.png" alt="Technical Architecture Diagram" width="800" height="auto" />
   <p><em>System Architecture Overview</em></p>
+  ![TwelveLabs  - EduSight POC - Page 1 Video Indexing + Upload Architecture](https://github.com/user-attachments/assets/2735dba8-a30e-42d6-ae0a-809734dc37c2)
+  ![TwelveLabs  - EduSight POC - Page 1 Lecture Analysis Architecture](https://github.com/user-attachments/assets/c9ee5c89-0d6f-47da-95e2-e31164770eca)
+  ![TwelveLabs  - EduSight POC - Page 1 Student Feedback Architecture](https://github.com/user-attachments/assets/79ebd271-d529-408d-a648-5b3f4514882c)
+  ![TwelveLabs  - EduSight POC - Page 1 Instructor Course Analysis Architecture](https://github.com/user-attachments/assets/cd15c597-03cd-46a7-ba0b-ad819ba8744e)
 </div>
+
+Link to LucidChart Diagram: https://lucid.app/lucidchart/cbcea3fe-4d64-49ef-a322-edc75768821d/edit?invitationId=inv_9659e9a9-0f46-49b6-8fb1-b7e5a8f93e13
 
 ## 🔧 Troubleshooting
 
