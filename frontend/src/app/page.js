@@ -144,7 +144,15 @@ export default function Home() {
 
       {/* Footer */}
       <div className="mt-16 text-center relative z-10">
-        <p className="text-gray-500 text-sm">© 2025 Twelve Labs. All rights reserved.</p>
+        <p className="text-gray-500 text-sm flex items-center justify-center gap-2">
+          © 2025 
+          <img 
+            src="/twelvelabs_logo_black_1536x1000.jpg" 
+            alt="TwelveLabs" 
+            className="h-24 w-auto"
+          />
+          . All rights reserved.
+        </p>
       </div>
     </div>
   );
