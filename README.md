@@ -5,12 +5,6 @@
   <h2>Education Platform Built for TwelveLabs by Nathan Che</h2>
 </div>
 
----
-
-## 🚀 Quick Start
-
-This platform provides AI-powered lecture analysis for both instructors and students. Follow the steps below to get started.
-
 ### Technical Architecture
 
 <div align="center">
@@ -30,6 +24,8 @@ Link to LucidChart Diagram: https://lucid.app/lucidchart/cbcea3fe-4d64-49ef-a322
 - Node.js 18+
 - AWS CLI
 - TwelveLabs API Key
+- AWS S3, DynamoDB, and Bedrock IAM Access
+- Google Gemini Studio API Key
 
 ## ⚙️ Setup Instructions
 
@@ -171,11 +167,6 @@ npm run dev
 
 The frontend will be available at `http://localhost:3000`
 
-## 🎯 Usage
-
-1. **Instructors**: Upload lecture videos, analyze content, and track student progress
-2. **Students**: Access course materials, view lecture analysis, and track your learning progress
-
 ## 📁 Project Structure
 
 ```
@@ -198,20 +189,6 @@ twelve-labs-education-poc/
 ### External Resources
 - **[API Documentation]** - Comprehensive API reference and endpoints
 - **[Technical Report]** - Detailed technical analysis and implementation details
-
-## 🔧 Troubleshooting
-
-- **Port conflicts**: Ensure ports 3000 and 8000 are available
-- **Environment variables**: Double-check that all required environment variables are set
-- **AWS credentials**: Verify AWS CLI is properly configured
-- **Python dependencies**: Make sure you're in the virtual environment when installing packages
-
-## 📞 Support
-
-For issues related to:
-- **TwelveLabs API**: Check the [TwelveLabs Documentation](https://docs.twelvelabs.io/)
-- **AWS Services**: Refer to [AWS Documentation](https://docs.aws.amazon.com/)
-- **Project Issues**: Create an issue in the project repository
 
 ---
 
