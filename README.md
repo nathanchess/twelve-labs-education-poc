@@ -5,6 +5,8 @@
   <h2>Education Platform Built for TwelveLabs by Nathan Che</h2>
 </div>
 
+https://github.com/user-attachments/assets/0e0da61d-9580-4fbc-89bd-5ff79594ca59
+
 ### Technical Architecture
 
 ![TwelveLabs  - EduSight POC - Page 1 Video Indexing + Upload Architecture](https://github.com/user-attachments/assets/2735dba8-a30e-42d6-ae0a-809734dc37c2)
