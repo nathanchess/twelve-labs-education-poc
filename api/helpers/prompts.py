@@ -93,7 +93,7 @@ This could be events like students nodding their heads, looking confused, clappi
 Do not make up any events, please only make events where there is CLEAR evidence of the student or audience being engaged in the lecture.
 Do not confuse with videos or other media that are not the lecture.
 
-Please give a maximum of 5 engagement events.
+Please give a maximum of 5 engagement events and a minimum of 1 engagement event.
 
 The emotion key must be one of the following:
 - happy

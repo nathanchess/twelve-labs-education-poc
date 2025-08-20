@@ -76,12 +76,19 @@ class AWSHandler(LLMProvider):
                 body=json.dumps(native_request)
             )
 
-            model_response = json.loads(response.get('body').read())
-            model_response = model_response['output']['message']['content'][0]['text']
+            original_response = json.loads(response.get('body').read())
+            model_response = original_response['output']['message']['content'][0]['text']
             model_response = model_response.replace("```json", "").replace("```", "")
             model_response = data_schema.model_validate_json(from_json(json.dumps(model_response), allow_partial=True))
 
             return model_response.model_dump()
+        
+        except pydantic.ValidationError as e:
+
+            agent = LectureBuilderAgent()
+            response = agent.reformat_text(text=original_response, data_schema=data_schema)
+
+            return response.model_dump()
            
         except Exception as e:
 

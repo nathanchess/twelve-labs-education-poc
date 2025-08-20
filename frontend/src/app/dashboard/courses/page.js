@@ -5,18 +5,24 @@ import { useRouter } from 'next/navigation';
 import { useState, useRef, useEffect } from 'react';
 
 export default function Courses() {
+
   const { userRole, userName, isLoggedIn } = useUser();
   const router = useRouter();
+
   const [isDragOver, setIsDragOver] = useState(false);
   const [uploadedVideo, setUploadedVideo] = useState(null);
-  const [s3Key, setS3Key] = useState(null);
   const [isButtonAnimating, setIsButtonAnimating] = useState(false);
-  const [uploadProgress, setUploadProgress] = useState(0);
+
+  const [twelveLabsUploadProgress, setTwelveLabsUploadProgress] = useState(0);
   const [s3UploadProgress, setS3UploadProgress] = useState(0);
   const [geminiUploadProgress, setGeminiUploadProgress] = useState(0);
+  
   const [isUploading, setIsUploading] = useState(false);
   const [uploadStatus, setUploadStatus] = useState('');
+  
+  const [s3Key, setS3Key] = useState(null);
   const [geminiFileId, setGeminiFileId] = useState(null);
+
   const fileInputRef = useRef(null);
 
   useEffect(() => {
@@ -25,13 +31,15 @@ export default function Courses() {
     }
   }, [isLoggedIn, router]);
 
-  async function uploadToS3(file) {
+  async function uploadToS3() {
     try {
-      console.log('Uploading to S3 via API:', { fileName: file.name, fileSize: file.blob.size });
+
+      setS3UploadProgress(10)
+      console.log('Uploading to S3 via API:', { fileName: uploadedVideo.name, fileSize: uploadedVideo.blob.size });
 
       // Use the API route instead of direct S3 upload
       const formData = new FormData();
-      formData.append('file', file.blob);
+      formData.append('file', uploadedVideo.blob);
       formData.append('userName', userName);
 
       const response = await fetch('/api/upload-s3', {
@@ -41,22 +49,25 @@ export default function Courses() {
 
       if (!response.ok) {
         const errorData = await response.json();
+        setS3UploadProgress(0)
         throw new Error(errorData.error || 'S3 upload failed');
       }
 
       const result = await response.json();
       
       if (!result.s3Key) {
+        setS3UploadProgress(0)
         throw new Error('S3 upload succeeded but no key returned');
       }
       
       setS3Key(result.s3Key);
+      setS3UploadProgress(100)
       console.log('S3 upload successful:', result.s3Key);
 
       return {
-        name: file.name,
-        size: file.blob.size,
-        type: file.blob.type,
+        name: uploadedVideo.name,
+        size: uploadedVideo.blob.size,
+        type: uploadedVideo.blob.type,
         date: new Date(),
         s3Key: result.s3Key
       };
@@ -66,13 +77,15 @@ export default function Courses() {
     }
   }
 
-  async function uploadToGemini(file) {
+  async function uploadToGemini() {
     try {
-      console.log('Uploading to Gemini via API:', { fileName: file.name, fileSize: file.blob.size });
+
+      console.log('Uploading to Gemini via API:', { fileName: uploadedVideo.name, fileSize: uploadedVideo.blob.size });
+      setGeminiUploadProgress(10)
 
       // Use the API route for Gemini upload
       const formData = new FormData();
-      formData.append('file', file.blob);
+      formData.append('file', uploadedVideo.blob);
       formData.append('userName', userName);
 
       const response = await fetch('/api/upload-gemini', {
@@ -82,22 +95,25 @@ export default function Courses() {
 
       if (!response.ok) {
         const errorData = await response.json();
+        setGeminiUploadProgress(0)
         throw new Error(errorData.error || 'Gemini upload failed');
       }
 
       const result = await response.json();
       
       if (!result.geminiFileId) {
+        setGeminiUploadProgress(0)
         throw new Error('Gemini upload succeeded but no file ID returned');
       }
       
       setGeminiFileId(result.geminiFileId);
+      setGeminiUploadProgress(100)
       console.log('Gemini upload successful:', result.geminiFileId);
 
       return {
-        name: file.name,
-        size: file.blob.size,
-        type: file.blob.type,
+        name: uploadedVideo.name,
+        size: uploadedVideo.blob.size,
+        type: uploadedVideo.blob.type,
         date: new Date(),
         geminiFileId: result.geminiFileId
       };
@@ -106,13 +122,72 @@ export default function Courses() {
       throw error;
     }
   }
+
+  const uploadToTwelveLabs = async () => {
+    
+    if (!uploadedVideo) return;
+    
+    try {
+      const url = 'https://api.twelvelabs.io/v1.3/tasks';
+
+      const form = new FormData();
+      form.append('index_id', process.env.NEXT_PUBLIC_TWELVE_LABS_INDEX_ID);
+      form.append('video_file', uploadedVideo.blob, uploadedVideo.name);
+      form.append('enable_video_stream', 'true');
+
+      const options = {
+        method: 'POST', 
+        headers: {
+          'x-api-key': process.env.NEXT_PUBLIC_TWELVE_LABS_API_KEY
+        },
+        body: form
+      }
+
+      const response = await fetch(url, options);
+      const data = await response.json();
+      
+      const retrieveVideoIndexTaskURL = 'https://api.twelvelabs.io/v1.3/tasks/' + data._id;
+      const retrieveVideoIndexTaskOptions = {
+        method: 'GET',
+        headers: {
+          'x-api-key': process.env.NEXT_PUBLIC_TWELVE_LABS_API_KEY
+        }
+      }
+
+      while (true) {
+        const retrieveVideoIndexTaskResponse = await fetch(retrieveVideoIndexTaskURL, retrieveVideoIndexTaskOptions);
+        const retrieveVideoIndexTaskData = await retrieveVideoIndexTaskResponse.json();
+
+        const video_indexing_status = retrieveVideoIndexTaskData.status;
+        const hls_status = retrieveVideoIndexTaskData.hls.status;
+
+        if (video_indexing_status == 'ready' && hls_status == 'COMPLETE') {
+          setTwelveLabsUploadProgress(100);
+          console.log(`TwelveLabs Video Upload Complete: ${data.video_id}`)
+          return data
+        } else if (video_indexing_status == 'validating') {
+          setTwelveLabsUploadProgress(5);
+        } else if (video_indexing_status == 'queued') {
+          setTwelveLabsUploadProgress(10);
+        } else if (video_indexing_status == 'pending') {
+          setTwelveLabsUploadProgress(20);
+        } else if (video_indexing_status == 'indexing') {
+          setTwelveLabsUploadProgress(70);
+        } else if (video_indexing_status == 'ERROR') {
+          setTwelveLabsUploadProgress(100);
+          throw new Error('Video indexing failed');
+        }
+        await new Promise(resolve => setTimeout(resolve, 1000));
+      }
+    } catch (error) {
+      console.error('Error uploading to TwelveLabs:', error);
+    }
+  }
    
   const handleUpload = (file) => {
-    // Create a blob URL for the file
     const blob = new Blob([file], { type: file.type });
     const blobUrl = URL.createObjectURL(blob);
     
-    // Store file data with blob for API upload
     const fileData = {
       name: file.name,
       size: file.size,
@@ -165,27 +240,16 @@ export default function Courses() {
   const uploadVideoIdToDynamoDB = async (twelveLabsVideoId, s3Key, geminiFileId) => {
 
     try {
-      if (!twelveLabsVideoId) {
-        throw new Error('TwelveLabs video ID is required');
+
+      if (!twelveLabsVideoId || !s3Key || !geminiFileId) {
+        throw new Error('TwelveLabs Video ID, S3 Object Key, and Gemini File ID is required');
       }
 
       const requestBody = {
-        twelve_labs_video_id: twelveLabsVideoId
+        twelve_labs_video_id: twelveLabsVideoId,
+        s3_key: s3Key,
+        gemini_file_id: geminiFileId
       };
-
-      if (s3Key && typeof s3Key === 'string' && s3Key.trim() !== '') {
-        requestBody.s3_key = s3Key;
-      } else {
-        console.error('S3 key is required');
-      }
-
-      if (geminiFileId && typeof geminiFileId === 'string' && geminiFileId.trim() !== '') {
-        requestBody.gemini_file_id = geminiFileId;
-      } else {
-        console.error('Gemini file ID is required');
-      }
-
-      console.log('Uploading to DynamoDB with:', requestBody);
 
       const uploadVideoResponse = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/upload_video`, {
         method: 'POST',
@@ -206,193 +270,72 @@ export default function Courses() {
 
     } catch (error) {
       console.error('Error uploading to DynamoDB:', error);
-      setUploadProgress(0);
+      //setUploadProgress(0);
       throw new Error(`Error uploading to DynamoDB: ${error.message}`);
     }
   }
 
-  const uploadVideoToTwelveLabs = async (s3Result, geminiResult) => {
-    
-    if (!uploadedVideo) return;
-    
-    setIsButtonAnimating(true);
-    setIsUploading(true);
-    setUploadProgress(0);
-    
-    try {
-      const url = 'https://api.twelvelabs.io/v1.3/tasks';
-
-      const form = new FormData();
-      form.append('index_id', process.env.NEXT_PUBLIC_TWELVE_LABS_INDEX_ID);
-      form.append('video_file', uploadedVideo.blob, uploadedVideo.name);
-      form.append('enable_video_stream', 'true');
-
-      const options = {
-        method: 'POST', 
-        headers: {
-          'x-api-key': process.env.NEXT_PUBLIC_TWELVE_LABS_API_KEY
-        },
-        body: form
-      }
-
-      const response = await fetch(url, options);
-      const data = await response.json();
-      
-      const retrieveVideoIndexTaskURL = 'https://api.twelvelabs.io/v1.3/tasks/' + data._id;
-      const retrieveVideoIndexTaskOptions = {
-        method: 'GET',
-        headers: {
-          'x-api-key': process.env.NEXT_PUBLIC_TWELVE_LABS_API_KEY
-        }
-      }
-
-      while (true) {
-        const retrieveVideoIndexTaskResponse = await fetch(retrieveVideoIndexTaskURL, retrieveVideoIndexTaskOptions);
-        const retrieveVideoIndexTaskData = await retrieveVideoIndexTaskResponse.json();
-
-        const status = retrieveVideoIndexTaskData.status;
-
-        if (status == 'ready') {
-          
-          setUploadProgress(100);
-
-          // Log the current state of our upload keys
-          console.log('Upload keys before DynamoDB:', {
-            twelveLabsVideoId: data.video_id,
-            s3Key: s3Result?.s3Key,
-            geminiFileId: geminiResult?.geminiFileId
-          });
-
-          // Upload to DynamoDB with both TwelveLabs video ID and S3 key
-          await uploadVideoIdToDynamoDB(data.video_id, s3Result?.s3Key, geminiResult?.geminiFileId);
-
-          break;
-        } else if (status == 'validating') {
-          setUploadProgress(5);
-        } else if (status == 'queued') {
-          setUploadProgress(10);
-        } else if (status == 'pending') {
-          setUploadProgress(20);
-        } else if (status == 'indexing') {
-          setUploadProgress(70);
-        } else if (status == 'failed') {
-          setUploadProgress(100);
-          throw new Error('Video indexing failed');
-        }
-
-        await new Promise(resolve => setTimeout(resolve, 2000));
-
-      }
-
-      console.log('Video uploaded successfully:', data);
-      setUploadProgress(100);
-      setIsUploading(false);
-      setIsButtonAnimating(false);
-      
-      // Store the video ID for future reference
-      if (data.video_id) {
-        console.log('Video ID:', data.video_id);
-        
-        // Store video data in localStorage for the slug route
-        const videoDataForStorage = {
-          ...uploadedVideo,
-          twelveLabsVideoId: data.video_id,
-          s3Key: s3Result?.s3Key, // Include S3 key in stored data
-          geminiFileId: geminiResult?.geminiFileId, // Include Gemini file ID in stored data
-          uploadDate: new Date().toISOString()
-        };
-        localStorage.setItem(`video_${data.video_id}`, JSON.stringify(videoDataForStorage));
-        
-        // Redirect to the video slug route
-        router.push(`/dashboard/courses/${data.video_id}`);
-      }
-
-    } catch (error) {
-      console.error('Error uploading to TwelveLabs:', error);
-      setIsUploading(false);
-      setUploadProgress(0);
-      setIsButtonAnimating(false);
-    } finally {
-      setIsUploading(false);
-      setIsButtonAnimating(false);
-    }
-  }
-
-  // Main upload function that handles S3, Gemini, and TwelveLabs uploads
+  // Main upload function that handles S3, Gemini, and TwelveLabs uploads asynchronously with JavaScript promises.
   const handleUploadVideos = async () => {
-    if (!uploadedVideo) return;
+
+    // Check if video exists, if not throw error.
+    if (!uploadedVideo) {
+      throw new Error("No uploaded video detected, please ensure that you have uploaded a video.")
+    };
     
+    // Reset all animation and progress states for frontend interface.
     setIsButtonAnimating(true);
     setIsUploading(true);
-    setUploadProgress(0);
+    setTwelveLabsUploadProgress(0);
     setS3UploadProgress(0);
     setGeminiUploadProgress(0);
     setUploadStatus('Starting uploads...');
     
     try {
+
       console.log('Starting upload process for:', uploadedVideo.name);
       
-      // Variables to store upload results
-      let s3Result = null;
-      let geminiResult = null;
+      setUploadStatus('Uploading | Indexing to S3, Gemini, and TwelveLabs...');
       
-      // First, upload to S3 and Gemini in parallel
-      setUploadStatus('Uploading to S3 and Gemini...');
-      
-      const [s3UploadResult, geminiUploadResult] = await Promise.all([
-        // S3 upload promise with progress tracking
-        (async () => {
-          setS3UploadProgress(10);
-          try {
-            const result = await uploadToS3(uploadedVideo);
-            setS3UploadProgress(100);
-            console.log('S3 upload completed:', result);
-            return result;
-          } catch (error) {
-            console.error('S3 upload failed:', error);
-            throw new Error(`S3 upload failed: ${error.message}`);
-          }
-        })(),
-        
-        // Gemini upload promise with progress tracking
-        (async () => {
-          setGeminiUploadProgress(10);
-          try {
-            const result = await uploadToGemini(uploadedVideo);
-            setGeminiUploadProgress(100);
-            console.log('Gemini upload completed:', result);
-            return result;
-          } catch (error) {
-            console.error('Gemini upload failed:', error);
-            throw new Error(`Gemini upload failed: ${error.message}`);
-          }
-        })()
+      // Upload asynchronously to all cloud providers.
+      const [s3UploadResult, geminiUploadResult, twelveLabsResults] = await Promise.all([
+        uploadToS3(),
+        uploadToGemini(),
+        uploadToTwelveLabs()
       ]);
       
-      // Store the results
-      s3Result = s3UploadResult;
-      geminiResult = geminiUploadResult;
+      console.log('S3, Gemini, and TwelveLabs upload completed. Results:', { s3UploadResult, geminiUploadResult, twelveLabsResults });
       
-      console.log('S3 and Gemini uploads completed. Results:', { s3Result, geminiResult });
-      
-      // Now upload to TwelveLabs with the results available
-      setUploadStatus('Uploading to TwelveLabs...');
-      await uploadVideoToTwelveLabs(s3Result, geminiResult);
+      await uploadVideoIdToDynamoDB(twelveLabsResults?.video_id, s3UploadResult?.s3Key, geminiUploadResult?.geminiFileId)
+
+      // Store in localstorage for slug route to reference.
+      const videoDataForStorage = {
+        ...uploadedVideo,
+        twelveLabsVideoId: twelveLabsResults?.video_id,
+        s3Key: s3UploadResult?.s3Key, 
+        geminiFileId: geminiUploadResult?.geminiFileId, 
+        uploadDate: new Date().toISOString()
+      };
+      localStorage.setItem(`video_${twelveLabsResults?.video_id}`, JSON.stringify(videoDataForStorage));
       
       console.log('All uploads completed successfully');
       setUploadStatus('All uploads completed successfully!');
+
+      router.push(`/dashboard/courses/${twelveLabsResults?.video_id}`);
       
     } catch (error) {
+
       console.error('Upload process failed:', error);
+
       setIsUploading(false);
-      setUploadProgress(0);
+      setTwelveLabsUploadProgress(0);
       setS3UploadProgress(0);
       setGeminiUploadProgress(0);
       setIsButtonAnimating(false);
       setUploadStatus('Upload failed');
       
-      // Show error to user
       alert(`Upload failed: ${error.message}`);
+
     }
   };
 
@@ -579,12 +522,12 @@ export default function Courses() {
                 <div className="mb-3">
                   <div className="flex items-center justify-between mb-2">
                     <span className="text-sm font-medium text-blue-700">TwelveLabs Processing</span>
-                    <span className="text-sm text-blue-600">{uploadProgress.toFixed(1)}%</span>
+                    <span className="text-sm text-blue-600">{twelveLabsUploadProgress.toFixed(1)}%</span>
                   </div>
                   <div className="w-full bg-blue-200 rounded-full h-2">
                     <div 
                       className="bg-gradient-to-r from-blue-500 to-purple-600 h-2 rounded-full transition-all duration-300 ease-out shadow-sm"
-                      style={{ width: `${uploadProgress}%` }}
+                      style={{ width: `${twelveLabsUploadProgress}%` }}
                     ></div>
                   </div>
                 </div>
@@ -598,7 +541,7 @@ export default function Courses() {
             )}
 
             {/* Upload Complete Message */}
-            {!isUploading && uploadProgress === 100 && (
+            {!isUploading && twelveLabsUploadProgress === 100 && (
               <div className="bg-green-50 rounded-xl p-6 mb-6 border border-green-200">
                 <div className="flex items-center gap-3">
                   <div className="w-8 h-8 bg-green-500 rounded-full flex items-center justify-center">

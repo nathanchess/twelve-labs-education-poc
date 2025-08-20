@@ -183,7 +183,7 @@ twelve-labs-education-poc/
 ## 📚 Documentation
 
 ### External Resources
-- **[API Documentation]** - Comprehensive API reference and endpoints
+- **[API Documentation](http://127.0.0.1:5000/redoc)** - Comprehensive API reference and endpoints
 - **[Technical Report]** - Detailed technical analysis and implementation details
 
 ### Technical Architecture

@@ -216,20 +216,10 @@ class VideoSearchAgent:
         return np.linalg.norm(np.array(embedding1) - np.array(embedding2))
     
     def knn_search(self, comparison_embedding: list, embeddings: dict, k: int):
-
-        try:
-            
-            distances = {}
-
-            for video_url, video_embedding in embeddings.items():
-
-                distances[video_url] = self._euclidean_distance(comparison_embedding, video_embedding)
-            
-            return sorted(distances.items(), key=lambda x: x[1])[:k]
-
-        except Exception as e:
-
-            raise Exception(f"Error performing knn search: {str(e)}")
+        distances = {}
+        for video_url, video_embedding in embeddings.items():
+            distances[video_url] = self._euclidean_distance(comparison_embedding, video_embedding)
+        return sorted(distances.items(), key=lambda x: x[1])[:k]
 
     def query_generation(self, video_id: str):
 
@@ -269,13 +259,10 @@ class VideoSearchAgent:
                 model_name="Marengo-retrieval-2.7",
                 video_url=video_url,
                 video_start_offset_sec=0,
-                video_end_offset_sec=video_duration+1
+                video_end_offset_sec=20
             )
 
-            def on_embedding_generated(task):
-                pass
-
-            status = task.wait_for_done(sleep_interval=2, callback=on_embedding_generated)
+            status = task.wait_for_done(sleep_interval=2)
 
             video_embedding = task.retrieve(embedding_option=['visual-text'])
 
@@ -292,47 +279,27 @@ class VideoSearchAgent:
 
     def fetch_related_videos(self, video_id: str):
 
-        try:
+        # Fetch original video from S3 Bucket.
+        presigned_urls = DBHandler().fetch_s3_presigned_urls()
+        
+        # Fetch embedding stored in Marengo Model
+        video_object = self.twelvelabs_client.index.video.retrieve(index_id=os.getenv('TWELVE_LABS_INDEX_ID'), id=video_id, embedding_option=['visual-text'])
+        video_duration = video_object.system_metadata.duration
+        video_embedding_segments = video_object.embedding.video_embedding.segments
+        
+        combined_embedding = np.array([])
+        for segment in video_embedding_segments:
+            combined_embedding = np.concatenate([combined_embedding, segment.embeddings_float]) 
+        
+        # Generate embeddings of other YouTube videos.
+        other_video_embeddings = {}
+        for video_url in presigned_urls:
+            video_embedding = self.generate_new_video_embeddings(video_url, combined_embedding, video_duration)
+            other_video_embeddings[video_url] = video_embedding
 
-            """
-            youtube_search_query = self.query_generation(video_id)
-            youtube_search_results = self.youtube_api_search(youtube_search_query)
-
-            print("Youtube search query: ", youtube_search_query)
-            print("Youtube search results: ", youtube_search_results)
-            """
-
-            presigned_urls = DBHandler().fetch_s3_presigned_urls()
-            
-            video_object = self.twelvelabs_client.index.video.retrieve(index_id=os.getenv('TWELVE_LABS_INDEX_ID'), id=video_id, embedding_option=['visual-text'])
-            video_duration = video_object.system_metadata.duration
-            video_embedding_segments = video_object.embedding.video_embedding.segments
-
-            combined_embedding = np.array([])
-
-            for segment in video_embedding_segments:
-                combined_embedding = np.concatenate([combined_embedding, segment.embeddings_float])
-
-            print(combined_embedding.shape)
-            
-            
-            other_video_embeddings = {}
-                
-            for video_url in presigned_urls:
-
-                video_embedding = self.generate_new_video_embeddings(video_url, combined_embedding, video_duration)
-
-                other_video_embeddings[video_url] = video_embedding
-
-            knn_results = self.knn_search(combined_embedding, other_video_embeddings, 5)
-
-            print("KNN results: ", knn_results)
-            
-            return knn_results
-
-        except Exception as e:
-
-            raise Exception(f"Error fetching related videos: {str(e)}")
-
+        # Conduct K-Nearest Neighbor Search with Euclidian Distance
+        knn_results = self.knn_search(combined_embedding, other_video_embeddings, 5)
+        
+        return knn_results
 
 __all__ = ['LectureBuilderAgent', 'EvaluationAgent', 'VideoSearchAgent']

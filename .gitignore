@@ -6,3 +6,6 @@
 /__pycache__/
 /api/__pycache__/
 /api/providers/__pycache__/
+
+/.*
+/terraform.tfstate

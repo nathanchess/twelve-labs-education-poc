@@ -24,11 +24,8 @@ class DBHandler:
     def upload_video_ids(self, twelve_labs_video_id: str, s3_key: str, gemini_file_id: str):
 
         """
-        
         Uploads video IDs to DynamoDB.
-
         Each row will contain UID of each video in their respective providers and create empty rows for metadata for future AI inference outputs from each provider.
-
         """
 
         try:

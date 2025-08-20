@@ -215,6 +215,8 @@ export default function InstructorCourseView({ videoId }) {
           });
         }
 
+        console.log('Video data:', result);
+
         // Create a fallback video data structure
         const videoData = {
           name: result.system_metadata?.filename || 'Unknown Video',
@@ -613,16 +615,11 @@ export default function InstructorCourseView({ videoId }) {
     }
     
     const fetchVideoIds = async () => {
-      const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/fetch_video_ids`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({video_id: videoId})
+      const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/fetch_video_ids?video_id=${videoId}`, {
+        method: 'GET',
       });
 
       const result = await response.json();
-      console.log('Video IDs:', result.data);
       setGeminiFileId(result.data.gemini_file_id);
       setS3Key(result.data.s3_key);
 
