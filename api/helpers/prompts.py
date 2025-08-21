@@ -238,3 +238,13 @@ Ensure it follows the following data schema which is a JSON object:
 
 Response must be in JSON format. Do not include any preamble or postamble.
 """
+
+__all__ = [
+    "summary_prompt",
+    "key_takeaways_prompt",
+    "pacing_recommendations_prompt",
+    "chapter_prompt",
+    "quiz_questions_prompt",
+    "engagement_prompt",
+    "multimodal_transcript_prompt",
+]

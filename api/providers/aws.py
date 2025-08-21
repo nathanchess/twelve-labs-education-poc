@@ -29,13 +29,8 @@ class AWSHandler(LLMProvider):
 
     async def _prompt_llm(self, prompt: str, data_schema: pydantic.BaseModel):
 
-        """
-        
-        Prompts the LLM with the given prompt and returns the response.
+        """ Prompts the LLM with the given prompt and returns the response. """
 
-        """
-
-        
         try:
 
             message_list = [
@@ -60,6 +55,7 @@ class AWSHandler(LLMProvider):
                 }
             ]
 
+            # Note: This is the only way to get the model to return a JSON object.
             inference_config = {
                 "topP": 1,
                 "topK": 1,
@@ -108,91 +104,54 @@ class AWSHandler(LLMProvider):
 
         """
         try:
-
             response = await self._prompt_llm(prompt=gist_prompt, data_schema=GistSchema)
-
             return response
-
         except Exception as e:
-
             print(f"Error generating gist: {e}")
             return None
 
-
     async def generate_chapters(self):
         
-        """
-        
-        Generates chapters of the video using AWS Bedrock.
-
-        """
+        """ Generates chapters of the video using AWS Bedrock. """
 
         try:
-
             response = await self._prompt_llm(prompt=chapter_prompt, data_schema=ChaptersSchema)
-
             return response
-        
         except Exception as e:
-
             print(f"Error generating chapters: {e}")
             return None
 
     async def generate_key_takeaways(self):
         
-        """
-        
-        Generates key takeaways of the video using AWS Bedrock.
-
-        """
+        """ Generates key takeaways of the video using AWS Bedrock. """
 
         try:
-            
             response = await self._prompt_llm(prompt=key_takeaways_prompt, data_schema=KeyTakeawaysSchema)
-
             return response
-        
         except Exception as e:
-
             print(f"Error generating key takeaways: {e}")
+            return None
     
     async def generate_pacing_recommendations(self):
         
-        """
-        
-        Generates pacing recommendations of the video using AWS Bedrock.
-
-        """
+        """ Generates pacing recommendations of the video using AWS Bedrock. """
 
         try:
-            
             response = await self._prompt_llm(prompt=pacing_recommendations_prompt, data_schema=PacingRecommendationsSchema)
-
             return response
-        
         except Exception as e:
-
             print(f"Error generating pacing recommendations: {e}")
             return None
         
     async def generate_quiz_questions(self, chapters: list):
         
-        """
-        
-        Generates quiz questions of the video using AWS Bedrock.
-
-        """     
+        """ Generates quiz questions of the video using AWS Bedrock. """     
 
         try:
-
             chapters_string = "\n".join([f"{chapter['title']}: {chapter['summary']}" for chapter in chapters])
-            
             response = await self._prompt_llm(prompt=quiz_questions_prompt.format(chapters=chapters_string), data_schema=QuizQuestionsSchema)
-
             return response
-        
         except Exception as e:
-
             print(f"Error generating quiz questions: {e}")
             return None
         

@@ -55,14 +55,14 @@ AWS_ACCESS_KEY
 AWS_SECRET_ACCESS_KEY
 AWS_ACCOUNT_ID
 
-# AWS Course Metadata Table
-DYNAMODB_CONTENT_TABLE_NAME
+# AWS Course Metadata Table (use exact name from manual/Terraform setup)
+DYNAMODB_CONTENT_TABLE_NAME=twelvelabs-education-video-poc
 
-# AWS User Metadata Table
-DYNAMODB_CONTENT_USER_NAME
+# AWS User Metadata Table (use exact name from manual/Terraform setup)
+DYNAMODB_CONTENT_USER_NAME=twelvelabs-education-user-poc
 
-# AWS Video Storage Bucket
-S3_BUCKET_NAME
+# AWS Video Storage Bucket (use exact name from manual/Terraform setup)
+S3_BUCKET_NAME=twelvelabs-lecture-content-poc
 
 # Google Gemini API Credentials
 GOOGLE_API_KEY
@@ -99,9 +99,134 @@ GEMINI_API_KEY
 NEXT_PUBLIC_API_URL=http://127.0.0.1:5000
 ```
 
-### 2. AWS Configuration
+### 2. AWS Infrastructure Setup
 
-Configure AWS CLI with your credentials:
+You have two options for setting up the required AWS resources: **Quick Setup (Terraform)** or **Manual Setup**.
+
+#### Option A: Quick Setup with Terraform (Recommended)
+
+1. **Install Terraform** (if not already installed):
+   - Download from [terraform.io](https://www.terraform.io/downloads.html)
+   - Or use package manager:
+     ```bash
+     # macOS with Homebrew
+     brew install terraform
+     
+     # Windows with Chocolatey
+     choco install terraform
+     
+     # Ubuntu/Debian
+     sudo apt-get update && sudo apt-get install terraform
+     ```
+
+2. **Configure AWS CLI** with your credentials:
+   ```bash
+   aws configure
+   ```
+   You'll be prompted to enter:
+   - AWS Access Key ID
+   - AWS Secret Access Key
+   - Default region name (use `us-east-1` for consistency)
+   - Default output format (use `json`)
+
+3. **Run Terraform** to create all resources automatically:
+   ```bash
+   # Navigate to project root (where main.tf is located)
+   cd twelve-labs-education-poc
+   
+   # Initialize Terraform
+   terraform init
+   
+   # Preview the resources that will be created
+   terraform plan
+   
+   # Create the resources
+   terraform apply
+   ```
+   
+   When prompted, type `yes` to confirm the creation of resources.
+
+4. **Note the created resource names** (they will be displayed in the output):
+   - S3 Bucket: `twelvelabs-lecture-content-poc`
+   - DynamoDB Video Table: `twelvelabs-education-video-poc`
+   - DynamoDB User Table: `twelvelabs-education-user-poc`
+
+#### Option B: Manual Setup
+
+If you prefer to create resources manually or need custom configurations:
+
+##### 2.1 Create S3 Bucket
+
+1. **Open AWS S3 Console**:
+   - Go to [AWS S3 Console](https://s3.console.aws.amazon.com/)
+
+2. **Create Bucket**:
+   - Click "Create bucket"
+   - **Bucket name**: `twelvelabs-lecture-content-poc` (must be globally unique)
+     - If this name is taken, use: `twelvelabs-lecture-content-poc-[your-initials]-[random-numbers]`
+   - **Region**: `us-east-1` (or your preferred region)
+   - **Block Public Access**: Keep all settings enabled (recommended for security)
+   - Click "Create bucket"
+
+##### 2.2 Create DynamoDB Tables
+
+**Table 1: Course Metadata Table**
+
+1. **Open AWS DynamoDB Console**:
+   - Go to [AWS DynamoDB Console](https://console.aws.amazon.com/dynamodb/)
+
+2. **Create Table**:
+   - Click "Create table"
+   - **Table name**: `twelvelabs-education-video-poc`
+   - **Partition key**: `video_id` (String)
+   - **Table settings**: Use default settings
+   - **Billing mode**: On-demand (Pay per request)
+   - Click "Create table"
+
+**Table 2: User Data Table**
+
+1. **Create Second Table**:
+   - Click "Create table"
+   - **Table name**: `twelvelabs-education-user-poc`
+   - **Partition key**: `student_name` (String)
+   - **Table settings**: Use default settings
+   - **Billing mode**: On-demand (Pay per request)
+   - Click "Create table"
+
+##### 2.3 Verify Table Schemas
+
+The tables will store the following data structure:
+
+**Course Metadata Table** (`twelvelabs-education-video-poc`):
+```
+Partition Key: video_id (String)
+Attributes:
+- gemini_file_id (String)
+- s3_key (String)
+- title (String)
+- summary (String)
+- chapters (List)
+- quiz_questions (List)
+- key_takeaways (List)
+- pacing_recommendations (List)
+- engagement (List)
+- transcript (String)
+- created_at (Number)
+```
+
+**User Data Table** (`twelvelabs-education-user-poc`):
+```
+Partition Key: student_name (String)
+Attributes:
+- [video_id]_wrong_answers (List)
+- [video_id]_reactions (List)
+- [video_id]_progress_report (Map)
+- [video_id]_finished (Boolean)
+```
+
+#### Configure AWS CLI (Required for both options)
+
+If you haven't already configured AWS CLI:
 
 ```bash
 aws configure
@@ -112,6 +237,8 @@ You'll be prompted to enter:
 - AWS Secret Access Key
 - Default region name
 - Default output format
+
+**Important**: If you used custom names during manual setup (e.g., because the default bucket name was taken), make sure to update the environment variables in your `.env` files to match your actual resource names.
 
 ### 3. Python Virtual Environment
 
@@ -150,7 +277,7 @@ pip install -r requirements.txt
 python main.py
 ```
 
-The backend server will start on `http://localhost:8000`
+The backend server will start on `http://localhost:5000` (note: corrected from 8000)
 
 ### 6. Start the Frontend Development Server
 
@@ -186,25 +313,39 @@ twelve-labs-education-poc/
 └── README.md
 ```
 
-## 📚 Documentation
+## 🧹 Cleanup (Optional)
 
-### External Resources
-- **[API Documentation](http://127.0.0.1:5000/redoc)** - Comprehensive API reference and endpoints
-- **[Technical Report]** - Detailed technical analysis and implementation details
+If you want to remove the AWS resources after testing:
 
-### Technical Architecture
+### Terraform Cleanup (If you used Terraform)
+```bash
+# Navigate to project root (where main.tf is located)
+cd twelve-labs-education-poc
 
-<div align="center">
-  <img src="docs/technical-architecture.png" alt="Technical Architecture Diagram" width="800" height="auto" />
-  <p><em>System Architecture Overview</em></p>
-</div>
+# Destroy all resources created by Terraform
+terraform destroy
+```
+
+### Manual Cleanup (If you created resources manually)
+1. **Delete S3 Bucket**:
+   - Go to AWS S3 Console
+   - Select your bucket and delete all objects first
+   - Then delete the bucket
+
+2. **Delete DynamoDB Tables**:
+   - Go to AWS DynamoDB Console
+   - Select each table and delete them
+
+**Note**: Be careful when deleting resources - this action cannot be undone and you will lose all data stored in these resources.
 
 ## 🔧 Troubleshooting
 
-- **Port conflicts**: Ensure ports 3000 and 8000 are available
+- **Port conflicts**: Ensure ports 3000 and 5000 are available
 - **Environment variables**: Double-check that all required environment variables are set
-- **AWS credentials**: Verify AWS CLI is properly configured
+- **AWS credentials**: Verify AWS CLI is properly configured and has necessary permissions
+- **AWS resources**: Ensure DynamoDB tables and S3 bucket exist and match the names in your environment variables
 - **Python dependencies**: Make sure you're in the virtual environment when installing packages
+- **Terraform issues**: If using Terraform, ensure you have the latest version and proper AWS permissions
 
 ## 📞 Support
 

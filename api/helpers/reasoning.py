@@ -145,10 +145,8 @@ class EvaluationAgent:
             question_by_chapters = {}
 
             for question in self.video_metadata['quiz_questions']:
-
                 if question['chapter_id'] not in question_by_chapters:
                     question_by_chapters[question['chapter_id']] = []
-
                 question_by_chapters[question['chapter_id']].append(question) 
 
             accuracy = len(wrong_answers) / total_questions
@@ -174,38 +172,29 @@ class EvaluationAgent:
         
     def generate_course_analysis(self, student_data: dict):
 
-        """
-        
-        Given all student data on a specific course, will generate a detailed analysis of the course according to the student's performance.
-        
-        """
-        
-        try:
+        """ Given all student data on a specific course, will generate a detailed analysis of the course according to the student's performance. """
             
-            prompt = course_analysis_prompt.format(
-                video_metadata=self.video_metadata,
-                student_data=student_data
-            )
-            
-            response = self.instructor_client.chat.completions.create(
-                model=self.bedrock_model_id,
-                messages=[{'role': 'user', 'content': prompt}],
-                response_model=CourseAnalysisSchema
-            )
-            
-            return response
+        prompt = course_analysis_prompt.format(
+            video_metadata=self.video_metadata,
+            student_data=student_data
+        )
         
-        except Exception as e:
-
-            raise Exception(f"Error generating course analysis: {str(e)}")
+        response = self.instructor_client.chat.completions.create(
+            model=self.bedrock_model_id,
+            messages=[{'role': 'user', 'content': prompt}],
+            response_model=CourseAnalysisSchema
+        )
+        
+        return response
         
 class VideoSearchAgent:
 
     def __init__(self):
-
         self.twelvelabs_client = TwelveLabs(api_key=os.getenv('TWELVE_LABS_API_KEY'))
 
     def _euclidean_distance(self, embedding1: list, embedding2: list):
+
+        """ Euclidian distance algorithm implemented in NumPy. """
 
         minimum_length = min(len(embedding1), len(embedding2))
 
@@ -216,6 +205,9 @@ class VideoSearchAgent:
         return np.linalg.norm(np.array(embedding1) - np.array(embedding2))
     
     def knn_search(self, comparison_embedding: list, embeddings: dict, k: int):
+
+        """ Calls the euclidian distance function and combares all embeddings to the comparison_embedding then returns sorted dictionary of top K results. """
+
         distances = {}
         for video_url, video_embedding in embeddings.items():
             distances[video_url] = self._euclidean_distance(comparison_embedding, video_embedding)
@@ -223,61 +215,53 @@ class VideoSearchAgent:
 
     def query_generation(self, video_id: str):
 
+        """ Uses TwelveLabs Pegasus model to generate a comprehensive YouTube query based on the video provided. """
+
         try:
-
             youtube_search_query = self.twelvelabs_client.analyze(video_id=video_id, prompt='Generate a youtube search query for this video. Focus on the content and subtopics of the video, not the title. The query should be short and concise words to find the most relevant videos.')
-
             return youtube_search_query.data
-        
         except Exception as e:
-
             raise Exception(f"Error generating youtube search query: {str(e)}")
 
     def youtube_api_search(self, query: str):
 
-        try:
+        """ Uses PyTube to search and download relevant video URLs. """
 
-            search_results = Search(query).results
-            search_urls = []
+        search_results = Search(query).results
+        search_urls = []
 
-            for video in search_results:
-                search_urls.append(video.watch_url)
+        for video in search_results:
+            search_urls.append(video.watch_url)
 
-            return search_urls
+        return search_urls
+
         
-        except Exception as e:
+    def generate_new_video_embeddings(self, video_url: str):
 
-            raise Exception(f"Error searching youtube: {str(e)}")
+        """ Uses TwelveLabs Marengo Model to generate video embedding for the first 20 seconds of the video. """
+
+        embedding = np.array([])
+
+        task = self.twelvelabs_client.embed.task.create(
+            model_name="Marengo-retrieval-2.7",
+            video_url=video_url,
+            video_start_offset_sec=0,
+            video_end_offset_sec=20
+        )
+
+        status = task.wait_for_done(sleep_interval=2)
+
+        video_embedding = task.retrieve(embedding_option=['visual-text'])
+
+        for segment in video_embedding.video_embedding.segments:
+            embedding = np.concatenate([embedding, segment.embeddings_float])
+
+        return embedding
         
-    def generate_new_video_embeddings(self, video_url: str, comparison_embedding: list, video_duration: int):
-
-        try:
-
-            embedding = np.array([])
-
-            task = self.twelvelabs_client.embed.task.create(
-                model_name="Marengo-retrieval-2.7",
-                video_url=video_url,
-                video_start_offset_sec=0,
-                video_end_offset_sec=20
-            )
-
-            status = task.wait_for_done(sleep_interval=2)
-
-            video_embedding = task.retrieve(embedding_option=['visual-text'])
-
-            for segment in video_embedding.video_embedding.segments:
-                embedding = np.concatenate([embedding, segment.embeddings_float])
-
-            print(embedding.shape)
-
-            return embedding
-        
-        except Exception as e:
-
-            raise Exception(f"Error generating new video embeddings: {str(e)}")
 
     def fetch_related_videos(self, video_id: str):
+
+        """ Fetches original video from S3 Bucket then generates embedding of videos queried on YouTube to then compare with euclidian distance based K-Nearest Neighbor. """
 
         # Fetch original video from S3 Bucket.
         presigned_urls = DBHandler().fetch_s3_presigned_urls()
@@ -294,7 +278,7 @@ class VideoSearchAgent:
         # Generate embeddings of other YouTube videos.
         other_video_embeddings = {}
         for video_url in presigned_urls:
-            video_embedding = self.generate_new_video_embeddings(video_url, combined_embedding, video_duration)
+            video_embedding = self.generate_new_video_embeddings(video_url)
             other_video_embeddings[video_url] = video_embedding
 
         # Conduct K-Nearest Neighbor Search with Euclidian Distance

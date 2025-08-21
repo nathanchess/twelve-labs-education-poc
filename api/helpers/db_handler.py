@@ -6,13 +6,11 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-# Configure logging
 logger = logging.getLogger(__name__)
 
 class DBHandler:
 
     def __init__(self):
-        logger.info("Initializing DBHandler...")
         try:
             self.dynamodb = boto3.resource('dynamodb')
             self.s3_client = boto3.resource('s3')

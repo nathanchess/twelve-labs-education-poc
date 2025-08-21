@@ -15,11 +15,10 @@ from fastapi.responses import JSONResponse
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# Initialize FastAPI app
 app = FastAPI()
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # Allow all origins for development
+    allow_origins=["*"], 
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -31,12 +30,6 @@ def convert_decimals_for_json(data) -> any:
     
     """
     Recursively convert Decimal objects to strings to make data JSON serializable.
-    
-    Args:
-        data: Any data structure (dict, list, or primitive type)
-        
-    Returns:
-        The same data structure with all Decimal objects converted to strings
     """
     
     def recursive_convert(obj):
@@ -56,12 +49,6 @@ def convert_for_dynamodb(data) -> any:
     
     """
     Recursively convert float objects to Decimal objects for DynamoDB storage.
-    
-    Args:
-        data: Any data structure (dict, list, or primitive type)
-        
-    Returns:
-        The same data structure with all float objects converted to Decimal objects
     """
     
     def recursive_convert(obj):
@@ -77,6 +64,8 @@ def convert_for_dynamodb(data) -> any:
     
     return recursive_convert(data)
 
+
+# API Endpoints
 
 @app.post('/upload_video')
 async def upload_video(video_params: VideoIdRequest = Depends(get_video_id_from_request)) -> DefaultResponse:
@@ -901,11 +890,7 @@ async def get_finished_videos(request: Request):
 @app.post('/generate_course_analysis')
 async def generate_course_analysis(request: Request):
     
-    """
-    
-    Generates course analysis for a given video ID from the database.
-
-    """
+    """ Generates course analysis for a given video ID from the database. """
 
     try:
 
@@ -959,11 +944,7 @@ async def generate_course_analysis(request: Request):
 @app.post('/fetch_student_data_from_course')
 async def fetch_student_data_from_course(request: Request):
     
-    """
-    
-    Fetches all student data from a course from the database.
-    
-    """
+    """ Fetches all student data from a course from the database. """
     
     try:
 
@@ -991,14 +972,8 @@ async def fetch_student_data_from_course(request: Request):
 @app.post('/fetch_related_videos')
 async def fetch_related_videos(request: Request):
     
-    """
-
-    Fetches recommended videos either from previous lectures in S3 or from YouTube API.
-    Uses KNN search from TwelveLabs vector embeddings to find the most similar videos.
-
-    Returns a list of video URLs and the confidence score for each video.
-    
-    """
+    """ Fetches recommended videos either from previous lectures in S3 or from YouTube API. Uses KNN search from TwelveLabs vector embeddings to find the most similar videos.
+    Returns a list of video URLs and the confidence score for each video. """
 
     try:
 
