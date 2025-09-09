@@ -128,59 +128,36 @@ export default function Courses() {
     if (!uploadedVideo) return;
     
     try {
-      const url = 'https://api.twelvelabs.io/v1.3/tasks';
+
+      setTwelveLabsUploadProgress(20)
 
       const form = new FormData();
       form.append('index_id', process.env.NEXT_PUBLIC_TWELVE_LABS_INDEX_ID);
       form.append('video_file', uploadedVideo.blob, uploadedVideo.name);
       form.append('enable_video_stream', 'true');
 
-      const options = {
-        method: 'POST', 
-        headers: {
-          'x-api-key': process.env.NEXT_PUBLIC_TWELVE_LABS_API_KEY
-        },
+      const response = await fetch('/api/upload-twelvelabs', {
+        method: 'POST',
         body: form
+      });
+
+      console.log(response)
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        setTwelveLabsUploadProgress(0)
+        throw new Error(errorData.error || 'TwelveLabs upload failed');
       }
 
-      const response = await fetch(url, options);
-      const data = await response.json();
+      setTwelveLabsUploadProgress(100)
+
+      const data = await response.json()
       
-      const retrieveVideoIndexTaskURL = 'https://api.twelvelabs.io/v1.3/tasks/' + data._id;
-      const retrieveVideoIndexTaskOptions = {
-        method: 'GET',
-        headers: {
-          'x-api-key': process.env.NEXT_PUBLIC_TWELVE_LABS_API_KEY
-        }
-      }
+      return data.data
 
-      while (true) {
-        const retrieveVideoIndexTaskResponse = await fetch(retrieveVideoIndexTaskURL, retrieveVideoIndexTaskOptions);
-        const retrieveVideoIndexTaskData = await retrieveVideoIndexTaskResponse.json();
-
-        const video_indexing_status = retrieveVideoIndexTaskData.status;
-        const hls_status = retrieveVideoIndexTaskData.hls.status;
-
-        if (video_indexing_status == 'ready' && hls_status == 'COMPLETE') {
-          setTwelveLabsUploadProgress(100);
-          console.log(`TwelveLabs Video Upload Complete: ${data.video_id}`)
-          return data
-        } else if (video_indexing_status == 'validating') {
-          setTwelveLabsUploadProgress(5);
-        } else if (video_indexing_status == 'queued') {
-          setTwelveLabsUploadProgress(10);
-        } else if (video_indexing_status == 'pending') {
-          setTwelveLabsUploadProgress(20);
-        } else if (video_indexing_status == 'indexing') {
-          setTwelveLabsUploadProgress(70);
-        } else if (video_indexing_status == 'ERROR') {
-          setTwelveLabsUploadProgress(100);
-          throw new Error('Video indexing failed');
-        }
-        await new Promise(resolve => setTimeout(resolve, 1000));
-      }
     } catch (error) {
-      console.error('Error uploading to TwelveLabs:', error);
+      console.log('TwelveLabs upload error:', error);
+      throw error;
     }
   }
    

@@ -81,7 +81,7 @@ Add your environment variables to `frontend/.env.local`:
 ```env
 
 # TwelveLabs API Credentials
-NEXT_PUBLIC_TWELVE_LABS_API_KEY
+TWELVE_LABS_API_KEY
 NEXT_PUBLIC_TWELVE_LABS_INDEX_ID
 
 # AWS API Credentials 

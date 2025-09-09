@@ -137,7 +137,7 @@ export default function Home() {
           <img 
             src="/twelvelabs_logo_black_1536x1000.jpg" 
             alt="TwelveLabs" 
-            className="h-24 w-auto"
+            className="h-9 w-auto"
           />
           . All rights reserved.
         </p>

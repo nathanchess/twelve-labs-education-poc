@@ -8,13 +8,6 @@ import ChaptersSection from './ChaptersSection';
 import VideoPreviewHeader from './VideoPreviewHeader';
 
 export default function InstructorCourseView({ videoId }) {
-
-  const options = {
-    method: 'GET',
-    headers: {
-      'x-api-key': process.env.NEXT_PUBLIC_TWELVE_LABS_API_KEY
-    }
-  }
   
   try {
 
@@ -192,19 +185,31 @@ export default function InstructorCourseView({ videoId }) {
     }
 
     const fetchVideo = async () => {
-      const retrievalURL = `https://api.twelvelabs.io/v1.3/indexes/${process.env.NEXT_PUBLIC_TWELVE_LABS_INDEX_ID}/videos/${videoId}?transcription=true`
       try {
-        const retrieveVideoResponse = await fetch(retrievalURL, options);
+
+        console.log(`Fetching video with ${videoId}`)
         
-        if (!retrieveVideoResponse.ok) {
-          throw new Error(`HTTP ${retrieveVideoResponse.status}: ${retrieveVideoResponse.statusText}`);
+        const result = await fetch('/api/get-twelvelabs', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({
+            videoId: videoId
+          })
+        });
+
+        if (!result.ok) {
+          throw new Error(`API request failed with status ${result.status}`);
         }
-        
-        const result = await retrieveVideoResponse.json();
+
+        const responseData = await result.json();
+
+        console.log(responseData.data)
 
         let transcriptText = '';
-        if (result.transcription) {
-          transcriptText = result.transcription.map(chunk => chunk.value).join(' ');
+        if (responseData.data.transcription) {
+          transcriptText = responseData.data.transcription.map(chunk => chunk.value).join(' ');
           console.log('Full transcript:', transcriptText);
           setTwelveLabsGeneratedContent(prev => {
             const newState = {
@@ -215,19 +220,19 @@ export default function InstructorCourseView({ videoId }) {
           });
         }
 
-        console.log('Video data:', result);
+        console.log('Video data:', responseData.data);
 
         // Create a fallback video data structure
         const videoData = {
-          name: result.system_metadata?.filename || 'Unknown Video',
-          size: result.system_metadata?.duration || 0,
-          date: result.created_at || new Date().toISOString(),
+          name: responseData.data.system_metadata?.filename || 'Unknown Video',
+          size: responseData.data.system_metadata?.duration || 0,
+          date: responseData.data.created_at || new Date().toISOString(),
           blob: null,
           blobUrl: null, // We'll handle this differently
           twelveLabsVideoId: videoId,
-          uploadDate: result.created_at || new Date().toISOString(),
+          uploadDate: responseData.data.created_at || new Date().toISOString(),
           // Store the HLS URL separately for potential future use
-          hlsUrl: result.hls?.video_url || null
+          hlsUrl: responseData.data.hls?.video_url || null
         }
 
         setVideoData(videoData);
@@ -508,17 +513,11 @@ export default function InstructorCourseView({ videoId }) {
         allPendingPromises.push(...pendingPromises);
       }
 
-      console.log('Remaining promises:', allPendingPromises);
-
       while (allPendingPromises.length > 0) {
         try {
           const result = await Promise.race(allPendingPromises.map(p => p.promiseObj));
-
-          console.log('Settled result:', result);
           
-          if (result.status === 'success') {
-            console.log('Success:', result.data);
-            
+          if (result.status === 'success') {           
             // Extract data from the response
             let extractedData = null;
             if (result.data && result.data.data && typeof result.data.data === 'object') {
@@ -535,9 +534,15 @@ export default function InstructorCourseView({ videoId }) {
               } else if (keys.length > 0) {
                 extractedData = result.data.data[keys[0]];
               }
+              console.log("API Endpoint: ", result.data.type)
             }
             
             console.log('Extracted data:', extractedData);
+
+            if (!extractedData) {
+              console.log("Continued for API Endpoint and Provider: ", result.provider, result.data.type)
+              continue;
+            }
             
             if (result.provider === 'twelvelabs') {
               setTwelveLabsGeneratedContent(prev => {
@@ -631,8 +636,6 @@ export default function InstructorCourseView({ videoId }) {
 
     const generateChapterQuizQuestions = async (video_key, chapters, provider) => {
 
-      console.log('Generating quiz questions for:', provider);
-
       const quizQuestionsResult = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/generate_quiz_questions`, {
         method: 'POST',
         headers: {
@@ -646,7 +649,6 @@ export default function InstructorCourseView({ videoId }) {
       });
 
       const result = await quizQuestionsResult.json();
-      console.log('Quiz questions generation result for provider:', provider, result);
       return result;
     }
 
@@ -709,8 +711,6 @@ export default function InstructorCourseView({ videoId }) {
         setIsAnalyzing(true);
         setAnalysisComplete(false);
 
-        console.log('api_urls:', api_urls);
-
         await parallelAnalysis(api_urls);
 
       };
@@ -759,8 +759,6 @@ export default function InstructorCourseView({ videoId }) {
     }, [generatedContent, isAnalyzing]);
 
     useEffect(() => {
-      console.log('twelve_labs_generated_content updated:', twelveLabsGeneratedContent);
-
       const generateTwelveLabsQuizQuestions = async () => {
         twelveLabsQuizQuestionsRef.current = true;
         const twelvelabs_quiz_questions = await generateChapterQuizQuestions(videoId, twelveLabsGeneratedContent.chapters, 'twelvelabs');
@@ -780,7 +778,6 @@ export default function InstructorCourseView({ videoId }) {
     }, [twelveLabsGeneratedContent]);
 
     useEffect(() => {
-      console.log('google_generated_content updated:', googleGeneratedContent);
       const generateGoogleQuizQuestions = async () => {
         googleQuizQuestionsRef.current = true;
         const google_quiz_questions = await generateChapterQuizQuestions(geminiFileId, googleGeneratedContent.chapters, 'google');
@@ -788,7 +785,7 @@ export default function InstructorCourseView({ videoId }) {
           ...prev,
           quiz_questions: google_quiz_questions.data[Object.keys(google_quiz_questions.data)[0]]
         }));
-        setTwelveLabsDuration(prev => ({
+        setGoogleDuration(prev => ({
           ...prev,
           quiz_questions: google_quiz_questions.duration
         }));
@@ -799,7 +796,6 @@ export default function InstructorCourseView({ videoId }) {
     }, [googleGeneratedContent]);
 
     useEffect(() => {
-      console.log('aws_generated_content updated:', awsGeneratedContent);
       const generateAwsQuizQuestions = async () => {
         awsQuizQuestionsRef.current = true;  
         const aws_quiz_questions = await generateChapterQuizQuestions(s3Key, awsGeneratedContent.chapters, 'aws');
@@ -807,12 +803,12 @@ export default function InstructorCourseView({ videoId }) {
             ...prev,
             quiz_questions: aws_quiz_questions.data[Object.keys(aws_quiz_questions.data)[0]]
           }));
-          setTwelveLabsDuration(prev => ({
+          setAwsDuration(prev => ({
             ...prev,
             quiz_questions: aws_quiz_questions.duration
           }));
       }
-      if (!awsQuizQuestionsRef && awsGeneratedContent.chapters && Array.isArray(awsGeneratedContent.chapters) && !awsGeneratedContent.quiz_questions) {
+      if (!awsQuizQuestionsRef.current && awsGeneratedContent.chapters && Array.isArray(awsGeneratedContent.chapters) && !awsGeneratedContent.quiz_questions) {
         generateAwsQuizQuestions();
       }
     }, [awsGeneratedContent]);
