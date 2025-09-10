@@ -1,6 +1,7 @@
 'use client';
 
 import { useRouter } from 'next/navigation';
+import Image from 'next/image';
 
 export default function Home() {
   const router = useRouter();
@@ -135,10 +136,12 @@ export default function Home() {
       <div className="mt-16 text-center relative z-10">
         <p className="text-gray-500 text-sm flex items-center justify-center gap-2">
           © 2025 
-          <img 
+          <Image 
             src="/twelvelabs_logo_black_1536x1000.jpg" 
             alt="TwelveLabs" 
             className="h-9 w-auto"
+            width={100}
+            height={100}
           />
           . All rights reserved.
         </p>
