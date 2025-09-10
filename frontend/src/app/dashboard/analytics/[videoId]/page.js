@@ -49,61 +49,58 @@ export default function CourseAnalytics() {
         };
       });
     
-    return realStudents.length > 0 ? realStudents : Array.from({ length: 16 }, (_, i) => ({
-      id: i + 1,
-      name: `Student ${String.fromCharCode(65 + i)}`,
-      quizScore: Math.floor(Math.random() * 30) + 70,
-      status: Math.random() > 0.7 ? 'struggling' : Math.random() > 0.5 ? 'average' : 'excellent'
-    }));
+    return realStudents;
   };
 
   const fetchVideo = async () => {
-    const retrievalURL = `https://api.twelvelabs.io/v1.3/indexes/${process.env.NEXT_PUBLIC_TWELVE_LABS_INDEX_ID}/videos/${videoId}?transcription=true`
-    try {
-      const retrieveVideoResponse = await fetch(retrievalURL, {
-        method: 'GET',
-        headers: {
-          'x-api-key': process.env.NEXT_PUBLIC_TWELVE_LABS_API_KEY
+      try {
+        
+        const result = await fetch('/api/get-twelvelabs', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({
+            videoId: videoId
+          })
+        });
+
+        if (!result.ok) {
+          throw new Error(`API request failed with status ${result.status}`);
         }
-      });
-      
-      if (!retrieveVideoResponse.ok) {
-        throw new Error(`HTTP ${retrieveVideoResponse.status}: ${retrieveVideoResponse.statusText}`);
-      }
-      
-      const result = await retrieveVideoResponse.json();
 
-      // Create video data structure matching StudentCourseView
-      const videoData = {
-        name: result.system_metadata?.filename || 'Unknown Video',
-        size: result.system_metadata?.duration || 0,
-        date: result.created_at || new Date().toISOString(),
-        blob: null,
-        blobUrl: null,
-        twelveLabsVideoId: videoId,
-        uploadDate: result.created_at || new Date().toISOString(),
-        hlsUrl: result.hls?.video_url || null
-      }
+        const responseData = await result.json();
 
-      console.log('Setting video data:', videoData);
-      setVideoData(videoData);
-    } catch (error) {
-      console.error('Error fetching video data:', error);
-      // Set a fallback video data
-      const fallbackData = {
-        name: 'Video Not Found',
-        size: 0,
-        date: new Date().toISOString(),
-        blob: null,
-        blobUrl: null,
-        twelveLabsVideoId: videoId,
-        uploadDate: new Date().toISOString(),
-        hlsUrl: null
-      };
-      console.log('Setting fallback video data:', fallbackData);
-      setVideoData(fallbackData);
+        // Create a fallback video data structure
+        const videoData = {
+          name: responseData.data.system_metadata?.filename || 'Unknown Video',
+          size: responseData.data.system_metadata?.duration || 0,
+          date: responseData.data.created_at || new Date().toISOString(),
+          blob: null,
+          blobUrl: null, // We'll handle this differently
+          twelveLabsVideoId: videoId,
+          uploadDate: responseData.data.created_at || new Date().toISOString(),
+          // Store the HLS URL separately for potential future use
+          hlsUrl: responseData.data.hls?.video_url || null
+        }
+
+        setVideoData(videoData);
+        
+      } catch (error) {
+        console.error('Error fetching video data:', error);
+        const fallbackData = {
+          name: 'Video Not Found',
+          size: 0,
+          date: new Date().toISOString(),
+          blob: null,
+          blobUrl: null,
+          twelveLabsVideoId: videoId,
+          uploadDate: new Date().toISOString()
+        };
+        console.log('Setting fallback video data:', fallbackData);
+        setVideoData(fallbackData);
+      }
     }
-  };
 
   const fetchStudentData = async () => {
     try {
@@ -134,6 +131,13 @@ export default function CourseAnalytics() {
     try {
       setCourseAnalysisLoading(true);
       console.log('Fetching course analysis for video:', videoId);
+      console.log(studentData)
+
+      if (studentData.length === 0) {
+        setCourseAnalysis([]);
+        return
+      }
+
       const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/generate_course_analysis`, {
         method: 'POST',
         headers: {
@@ -689,41 +693,7 @@ export default function CourseAnalytics() {
                 </div>
               ) : (
                 <div className="space-y-4">
-                  <div className="border-l-4 border-purple-500 pl-4">
-                    <div className="flex items-center gap-3 mb-2">
-                      <span className="text-2xl">😊</span>
-                      <span className="text-sm font-medium text-gray-700">2:15 - Happy</span>
-                      <span className="text-xs text-gray-500">by Student A</span>
-                    </div>
-                    <p className="text-sm text-gray-600">"I understand this well - the explanation was clear and the examples helped a lot."</p>
-                  </div>
-                  
-                  <div className="border-l-4 border-yellow-500 pl-4">
-                    <div className="flex items-center gap-3 mb-2">
-                      <span className="text-2xl">🤔</span>
-                      <span className="text-sm font-medium text-gray-700">4:32 - Confused</span>
-                      <span className="text-xs text-gray-500">by Student B</span>
-                    </div>
-                    <p className="text-sm text-gray-600">"Need clarification on this step - the transition from equation 1 to 2 isn't clear."</p>
-                  </div>
-                  
-                  <div className="border-l-4 border-green-500 pl-4">
-                    <div className="flex items-center gap-3 mb-2">
-                      <span className="text-2xl">💡</span>
-                      <span className="text-sm font-medium text-gray-700">6:45 - Lightbulb</span>
-                      <span className="text-xs text-gray-500">by Student C</span>
-                    </div>
-                    <p className="text-sm text-gray-600">"Just understood something - the pattern is becoming clear now!"</p>
-                  </div>
-                  
-                  <div className="border-l-4 border-red-500 pl-4">
-                    <div className="flex items-center gap-3 mb-2">
-                      <span className="text-2xl">😴</span>
-                      <span className="text-sm font-medium text-gray-700">8:20 - Bored</span>
-                      <span className="text-xs text-gray-500">by Student D</span>
-                    </div>
-                    <p className="text-sm text-gray-600">"This is too slow - I already know this part, can we move faster?"</p>
-                  </div>
+                  <p>No student reactions yet...</p>
                 </div>
               )}
             </div>

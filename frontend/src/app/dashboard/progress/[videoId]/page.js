@@ -71,25 +71,29 @@ export default function StudentProgressPage() {
 
         // Fetch video data (HLS URL)
         try {
-          const videoResponse = await fetch('/api/fetch-hls-video', {
+          const result = await fetch('/api/get-twelvelabs', {
             method: 'POST',
             headers: {
               'Content-Type': 'application/json'
             },
-            body: JSON.stringify({ videoId: videoId })
+            body: JSON.stringify({
+              videoId: videoId
+            })
           });
-          
-          if (videoResponse.ok) {
-            const videoData = await videoResponse.json();
-            if (videoData.success && videoData.data) {
-              setVideoData({
-                name: videoData.data.title || 'Course Video',
-                hlsUrl: videoData.data.hlsUrl,
-                size: videoData.data.duration || 0,
-                uploadDate: videoData.data.createdAt
-              });
-            }
+
+          if (!result.ok) {
+            throw new Error(`API request failed with status ${result.status}`);
           }
+
+          const responseData = await result.json();
+          
+          setVideoData({
+            name: responseData.data.system_metadata?.filename || 'Course Video',
+            hlsUrl:  responseData.data.hls?.video_url,
+            size: responseData.data.system_metadata?.duration || 0,
+            uploadDate: responseData.data.created_at                                    
+          });
+
         } catch (videoError) {
           console.log('Video data not available, using fallback');
           // Fallback video data structure

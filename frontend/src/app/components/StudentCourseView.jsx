@@ -4,16 +4,8 @@ import { useRouter } from 'next/navigation';
 import { useState, useEffect, useCallback } from 'react';
 import React from 'react';
 import VideoPlayer from './VideoPlayer';
-import ChaptersSection from './ChaptersSection';
 
 export default function StudentCourseView({ videoId, userName }) {
-
-  const options = {
-    method: 'GET',
-    headers: {
-      'x-api-key': process.env.NEXT_PUBLIC_TWELVE_LABS_API_KEY
-    }
-  }
 
   const router = useRouter();
   const [videoData, setVideoData] = useState(null);
@@ -641,54 +633,56 @@ export default function StudentCourseView({ videoId, userName }) {
 
   // Fetch video data from TwelveLabs
   const fetchVideo = async () => {
-    const retrievalURL = `https://api.twelvelabs.io/v1.3/indexes/${process.env.NEXT_PUBLIC_TWELVE_LABS_INDEX_ID}/videos/${videoId}?transcription=true`
-    try {
-      const retrieveVideoResponse = await fetch(retrievalURL, options);
-      
-      if (!retrieveVideoResponse.ok) {
-        throw new Error(`HTTP ${retrieveVideoResponse.status}: ${retrieveVideoResponse.statusText}`);
-      }
-      
-      const result = await retrieveVideoResponse.json();
+      try {
 
-      // Create a fallback video data structure
-      const videoData = {
-        name: result.system_metadata?.filename || 'Unknown Video',
-        size: result.system_metadata?.duration || 0,
-        date: result.created_at || new Date().toISOString(),
-        blob: null,
-        blobUrl: null, // We'll handle this differently
-        twelveLabsVideoId: videoId,
-        uploadDate: result.created_at || new Date().toISOString(),
-        // Store the HLS URL separately for potential future use
-        hlsUrl: result.hls?.video_url || null
-      }
+        console.log("Fetching")
+        
+        const result = await fetch('/api/get-twelvelabs', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({
+            videoId: videoId
+          })
+        });
 
-      console.log('Setting video data:', videoData);
-      setVideoData(videoData);
-      console.log('Setting loading to false');
-      setLoading(false);
-      console.log('State updates completed');
-      //clearTimeout(loadingTimeout);
-    } catch (error) {
-      console.error('Error fetching video data:', error);
-      // Set a fallback video data
-      const fallbackData = {
-        name: 'Video Not Found',
-        size: 0,
-        date: new Date().toISOString(),
-        blob: null,
-        blobUrl: null,
-        twelveLabsVideoId: videoId,
-        uploadDate: new Date().toISOString()
-      };
-      console.log('Setting fallback video data:', fallbackData);
-      setVideoData(fallbackData);
-      console.log('Setting loading to false (error case)');
-      setLoading(false);
-      //clearTimeout(loadingTimeout);
+        if (!result.ok) {
+          throw new Error(`API request failed with status ${result.status}`);
+        }
+
+        const responseData = await result.json();
+
+        // Create a fallback video data structure
+        const videoData = {
+          name: responseData.data.system_metadata?.filename || 'Unknown Video',
+          size: responseData.data.system_metadata?.duration || 0,
+          date: responseData.data.created_at || new Date().toISOString(),
+          twelveLabsVideoId: videoId,
+          uploadDate: responseData.data.created_at || new Date().toISOString(),
+          // Store the HLS URL separately for potential future use
+          hlsUrl: responseData.data.hls?.video_url || null
+        }
+
+        setVideoData(videoData);
+        setLoading(false)
+        
+      } catch (error) {
+        console.error('Error fetching video data:', error);
+        const fallbackData = {
+          name: 'Video Not Found',
+          size: 0,
+          date: new Date().toISOString(),
+          blob: null,
+          blobUrl: null,
+          twelveLabsVideoId: videoId,
+          uploadDate: new Date().toISOString()
+        };
+        console.log('Setting fallback video data:', fallbackData);
+        setVideoData(fallbackData);
+        setLoading(false)
+      }
     }
-  }
 
   // Fetch course metadata from database
   const fetchCourseMetadata = async () => {
