@@ -221,7 +221,7 @@ export default function Dashboard() {
                       <div
                         key={course.video_id}
                         className="bg-gradient-to-br from-blue-50 to-indigo-50 rounded-xl p-6 border border-blue-200 hover:border-blue-300 transition-all duration-200 cursor-pointer group"
-                        onClick={() => router.push(`/dashboard/courses/${course.video_id}`)}
+                        
                       >
                         <div className="flex items-center justify-between mb-4">
                           <div className="w-10 h-10 bg-blue-500 rounded-lg flex items-center justify-center group-hover:scale-110 transition-transform duration-200">
@@ -255,7 +255,7 @@ export default function Dashboard() {
                           </div>
                         </div>
                         <div className="mt-4 pt-3 border-t border-blue-200">
-                          <p className="text-xs text-gray-500">Click to view course details</p>
+                          <p className="text-xs text-gray-500">Go to student view to see course details</p>
                         </div>
                       </div>
                     ))}
