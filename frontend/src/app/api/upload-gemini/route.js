@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { GoogleGenAI } from '@google/genai';
-import { writeFile } from 'fs/promises';
+import { writeFile, unlink } from 'fs/promises';
 import { join } from 'path';
 import { tmpdir } from 'os';
 
@@ -11,47 +11,51 @@ const googleClient = new GoogleGenAI({
 export async function POST(request) {
     try {
         const formData = await request.formData();
-        const file = formData.get('file');
+        const filePath = formData.get('file');
         const userName = formData.get('userName');
 
-        if (!file || !userName) {
+        if (!filePath || !userName) {
             return NextResponse.json({
                 error: 'File and userName are required'
             }, { status: 400 });
         }
 
-        // Convert file to buffer
-        const bytes = await file.arrayBuffer();
-        const buffer = Buffer.from(bytes);
+        const response = await fetch(filePath)
+        if (!response.ok) {
+            throw new Error(`Failed to fetch file: ${response.statusText}`);
+        }
+        const fileBuffer = Buffer.from(await response.arrayBuffer());
 
-        // Create a temporary file path
-        const tempFileName = `${userName}-${Date.now()}-${file.name}`;
+        // 2. Create a temporary local file path
+        const mimeType = response.headers.get('content-type') || 'application/octet-stream';
+        const url = new URL(filePath);
+        const pathname = url.pathname;
+        const originalFileName = pathname.substring(pathname.lastIndexOf('/') + 1);
+        const tempFileName = `${userName}-${Date.now()}-${originalFileName}`;
         const tempFilePath = join(tmpdir(), tempFileName);
 
-        // Write the buffer to a temporary file
-        await writeFile(tempFilePath, buffer);
+        // 3. Write the downloaded file buffer to the temporary path
+        await writeFile(tempFilePath, fileBuffer);
 
         try {
             // Upload file to Gemini using the correct API
             const myfile = await googleClient.files.upload({
                 file: tempFilePath,
                 config: { 
-                    mimeType: file.type || 'video/mp4' 
+                    mimeType: mimeType || 'video/mp4' 
                 },
             });
-
-            console.log('Gemini upload successful:', myfile.uri);
 
             return NextResponse.json({
                 success: true,
                 geminiFileId: myfile.uri,
-                fileName: file.name
+                fileName: originalFileName
             });
 
         } finally {
             // Clean up the temporary file
             try {
-                await writeFile(tempFilePath, ''); // Clear the file
+                await unlink(tempFilePath);
             } catch (cleanupError) {
                 console.warn('Failed to cleanup temp file:', cleanupError);
             }

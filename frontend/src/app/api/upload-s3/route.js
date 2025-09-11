@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { S3Client, PutObjectCommand } from '@aws-sdk/client-s3';
+import { readFile } from 'node:fs/promises';
 
 const s3Client = new S3Client({
     region: process.env.AWS_REGION,
@@ -25,14 +26,10 @@ export async function POST(request) {
         const fileName = `video_${Date.now()}.mp4`;
         const key = `${fileName}`;
 
-        // Convert file to buffer
-        const bytes = await file.arrayBuffer();
-        const buffer = Buffer.from(bytes);
-
         const command = new PutObjectCommand({
             Bucket: bucketName,
             Key: key,
-            Body: buffer,
+            Body: file,
             ContentType: file.type || 'video/mp4'
         });
 

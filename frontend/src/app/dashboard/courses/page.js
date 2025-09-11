@@ -4,6 +4,9 @@ import { useUser } from '../../context/UserContext';
 import { useRouter } from 'next/navigation';
 import { useState, useRef, useEffect } from 'react';
 
+import { put } from '@vercel/blob'
+import { upload } from '@vercel/blob/client'
+
 export default function Courses() {
 
   const { userRole, userName, isLoggedIn } = useUser();
@@ -39,7 +42,7 @@ export default function Courses() {
 
       // Use the API route instead of direct S3 upload
       const formData = new FormData();
-      formData.append('file', uploadedVideo.blob);
+      formData.append('file', uploadedVideo.blobUrl);
       formData.append('userName', userName);
 
       const response = await fetch('/api/upload-s3', {
@@ -85,7 +88,7 @@ export default function Courses() {
 
       // Use the API route for Gemini upload
       const formData = new FormData();
-      formData.append('file', uploadedVideo.blob);
+      formData.append('file', uploadedVideo.blobUrl);
       formData.append('userName', userName);
 
       const response = await fetch('/api/upload-gemini', {
@@ -133,7 +136,7 @@ export default function Courses() {
 
       const form = new FormData();
       form.append('index_id', process.env.NEXT_PUBLIC_TWELVE_LABS_INDEX_ID);
-      form.append('video_file', uploadedVideo.blob, uploadedVideo.name);
+      form.append('video_url', uploadedVideo.blobUrl);
       form.append('enable_video_stream', 'true');
 
       const response = await fetch('/api/upload-twelvelabs', {
@@ -161,22 +164,23 @@ export default function Courses() {
     }
   }
    
-  const handleUpload = (file) => {
+  const handleUpload = async (file) => {
     const blob = new Blob([file], { type: file.type });
-    const blobUrl = URL.createObjectURL(blob);
     
+    const newBlob = await upload(file.name, file, {
+      access: 'public',
+      handleUploadUrl: '/api/blob-upload'
+    })
+
     const fileData = {
       name: file.name,
       size: file.size,
       type: file.type,
       date: new Date(),
       blob: blob,
-      blobUrl: blobUrl,
+      blobUrl: newBlob.downloadUrl,
     };
-    
-    console.log('File data:', fileData);
-    
-    // Set the single uploaded video
+
     setUploadedVideo(fileData);
   };
 
@@ -274,6 +278,8 @@ export default function Courses() {
       
       setUploadStatus('Uploading | Indexing to S3, Gemini, and TwelveLabs...');
       
+      
+
       // Upload asynchronously to all cloud providers.
       const [s3UploadResult, geminiUploadResult, twelveLabsResults] = await Promise.all([
         uploadToS3(),
