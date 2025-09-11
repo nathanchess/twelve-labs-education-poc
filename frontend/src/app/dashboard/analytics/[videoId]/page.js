@@ -133,11 +133,6 @@ export default function CourseAnalytics() {
       console.log('Fetching course analysis for video:', videoId);
       console.log(studentData)
 
-      if (studentData.length === 0) {
-        setCourseAnalysis([]);
-        return
-      }
-
       const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/generate_course_analysis`, {
         method: 'POST',
         headers: {

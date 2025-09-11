@@ -677,6 +677,8 @@ export default function InstructorCourseView({ videoId }) {
         // Testing purposes: Regenerate all content asynchronously
         let api_urls = {};
 
+        console.log(geminiFileId, s3KeyLocal, videoId)
+
         // TwelveLabs APIs
         api_urls['twelvelabs'] = [
          `${process.env.NEXT_PUBLIC_API_URL}/generate_gist?video_id=${videoId}&provider=twelvelabs`,
@@ -686,6 +688,8 @@ export default function InstructorCourseView({ videoId }) {
          `${process.env.NEXT_PUBLIC_API_URL}/generate_engagement?video_id=${videoId}&provider=twelvelabs`,
          `${process.env.NEXT_PUBLIC_API_URL}/generate_summary?video_id=${videoId}&provider=twelvelabs`,
         ]
+
+        
 
         api_urls['google'] = [
           `${process.env.NEXT_PUBLIC_API_URL}/generate_gist?video_id=${geminiFileIdLocal}&provider=google`,
@@ -707,6 +711,8 @@ export default function InstructorCourseView({ videoId }) {
           `${process.env.NEXT_PUBLIC_API_URL}/generate_summary?video_id=${s3KeyLocal}&provider=aws`,
           `${process.env.NEXT_PUBLIC_API_URL}/generate_transcript?video_id=${s3KeyLocal}&provider=aws`,
         ]
+
+        
 
         setIsAnalyzing(true);
         setAnalysisComplete(false);
