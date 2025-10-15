@@ -9,10 +9,10 @@ https://github.com/user-attachments/assets/0e0da61d-9580-4fbc-89bd-5ff79594ca59
 
 ### Technical Architecture
 
-![TwelveLabs  - EduSight POC - Page 1 Video Indexing + Upload Architecture](https://github.com/user-attachments/assets/2735dba8-a30e-42d6-ae0a-809734dc37c2)
-![TwelveLabs  - EduSight POC - Page 1 Lecture Analysis Architecture (1)](https://github.com/user-attachments/assets/0746edd9-bf94-42e5-a429-1f87523e14e9)
-![TwelveLabs  - EduSight POC - Page 1 Student Feedback Architecture](https://github.com/user-attachments/assets/79ebd271-d529-408d-a648-5b3f4514882c)
-![TwelveLabs  - EduSight POC - Page 1 Instructor Course Analysis Architecture](https://github.com/user-attachments/assets/cd15c597-03cd-46a7-ba0b-ad819ba8744e)
+<img width="6826" height="1978" alt="2" src="https://github.com/user-attachments/assets/e2eb3e15-951a-40d0-bdcf-4f9b3f485d4b" />
+<img width="11813" height="2128" alt="5" src="https://github.com/user-attachments/assets/18513cac-8863-4167-a023-88ba99168af2" />
+<img width="10163" height="1641" alt="10" src="https://github.com/user-attachments/assets/4ad7b89b-c14d-4dc2-877b-97dc6c0e0208" />
+<img width="7351" height="1191" alt="TwelveLabs  - EduSight POC - Page 1" src="https://github.com/user-attachments/assets/4b4d03ef-0dc6-41e1-be43-e872fd038d53" />
 - **[Technical Architecture (LucidCharts)](https://lucid.app/lucidchart/cbcea3fe-4d64-49ef-a322-edc75768821d/edit?invitationId=inv_9659e9a9-0f46-49b6-8fb1-b7e5a8f93e13)** - Link to LucidCharts Technical Architecture
 
 ### Documentation
