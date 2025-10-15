@@ -5,7 +5,7 @@
   <h2>Education Platform Built for TwelveLabs by Nathan Che</h2>
 </div>
 
-<iframe width="560" height="315" src="https://www.youtube.com/embed/_LFPwh_iDPw?si=bqy9XFrZ0_Nv1qQm" title="YouTube video player" frameborder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" referrerpolicy="strict-origin-when-cross-origin" allowfullscreen></iframe>
+[![Watch the video]()]([https://youtu.be/vt5fpE0bzSY](https://youtu.be/_LFPwh_iDPw?si=Wk3Ya6ECf8iwyR4c))
 
 ### Technical Architecture
 
