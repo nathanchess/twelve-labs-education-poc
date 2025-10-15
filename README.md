@@ -5,7 +5,9 @@
   <h2>Education Platform Built for TwelveLabs by Nathan Che</h2>
 </div>
 
-https://github.com/user-attachments/assets/0e0da61d-9580-4fbc-89bd-5ff79594ca59
+## 🎥 Demo Video
+
+[![AI-Powered Lecture Analysis Platform Demo](https://img.youtube.com/vi/_LFPwh_iDPw/maxresdefault.jpg)](https://youtu.be/_LFPwh_iDPw?si=gm11AkQKoApShwAz)
 
 ### Technical Architecture
 
